@@ -42,9 +42,11 @@ app.use(express.json());
 // Routes
 
 const userAdminDashboardRoutes = require('./routes/admin');
+const productRoutes = require('./routes/product');
 
 //Admin
-app.use('/api/admin', userAdminDashboardRoutes);
+app.use('/admin', userAdminDashboardRoutes);
+app.use('/admin', productRoutes);
 
 
 // Socket.io real-time logic
