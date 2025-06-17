@@ -82,6 +82,14 @@ router.get('/product-list', (req, res) => {
     });
   });
 
+  
+
+  router.get('/orders-list', (req, res) => {
+    db.query('SELECT * FROM orders ORDER BY id DESC', (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(results);
+    });
+  });
 
   module.exports = router;
 
