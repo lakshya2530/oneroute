@@ -91,6 +91,43 @@ router.get('/product-list', (req, res) => {
     });
   });
 
+  router.post('/cms-page-update', (req, res) => {
+    const { slug, user_type, description, status = 1 } = req.body;
+  
+    const checkSql = 'SELECT * FROM cms_pages WHERE slug = ? AND user_type = ?';
+    db.query(checkSql, [slug, user_type], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+  
+      if (rows.length > 0) {
+        // Update existing
+        const updateSql = 'UPDATE cms_pages SET description = ?, status = ? WHERE slug = ? AND user_type = ?';
+        db.query(updateSql, [description, status, slug, user_type], (err) => {
+          if (err) return res.status(500).json({ error: err.message });
+          return res.json({ message: 'CMS content updated successfully' });
+        });
+      } else {
+        // Insert new
+        const insertSql = 'INSERT INTO cms_pages (slug, user_type, description, status) VALUES (?, ?, ?, ?)';
+        db.query(insertSql, [slug, user_type, description, status], (err) => {
+          if (err) return res.status(500).json({ error: err.message });
+          return res.json({ message: 'CMS content created successfully' });
+        });
+      }
+    });
+  });
+
+  
+  router.get('/cms-page/:slug/:user_type', (req, res) => {
+    const { slug, user_type } = req.params;
+    const sql = 'SELECT * FROM cms_pages WHERE slug = ? AND user_type = ?';
+    db.query(sql, [slug, user_type], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (rows.length === 0) return res.status(404).json({ message: 'Content not found' });
+      res.json(rows[0]);
+    });
+  });
+  
+
   module.exports = router;
 
   
