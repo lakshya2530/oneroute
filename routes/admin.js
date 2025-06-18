@@ -185,14 +185,14 @@ router.post(
   (req, res) => {
     const {
       full_name, age, gender, email, phone, vehicle_type,
-      type, registration_date, status,user_type,vehicle_brand,vehicle_model
+      type, registration_date, status, user_type, vehicle_brand, vehicle_model
     } = req.body;
 
     const files = req.files;
 
     const deliveryUser = {
       full_name, age, gender, email, phone, vehicle_type,
-      type, registration_date, status,
+      type, registration_date, status,vehicle_brand, vehicle_model,
       user_type,
       delivery_photo: files?.delivery_photo?.[0]?.filename || '',
       vehicle_front: files?.vehicle_front?.[0]?.filename || '',
@@ -216,16 +216,54 @@ router.get('/delivery-list', (req, res) => {
   });
 });
 
+router.put(
+  '/delivery-update/:id',
+  upload.fields([
+    { name: 'delivery_photo', maxCount: 1 },
+    { name: 'vehicle_front', maxCount: 1 },
+    { name: 'vehicle_back', maxCount: 1 },
+    { name: 'license_photo', maxCount: 1 },
+    { name: 'rc_front', maxCount: 1 },
+    { name: 'rc_back', maxCount: 1 }
+  ]),
+  (req, res) => {
+    const { id } = req.params;
+    const {
+      full_name, age, gender, email, phone, vehicle_type,
+      type, registration_date, status, user_type, vehicle_brand, vehicle_model
+    } = req.body;
 
-router.put('/delivery-update/:id', (req, res) => {
-  const { id } = req.params;
-  const updatedData = req.body;
+    const files = req.files;
 
-  db.query('UPDATE users SET ? WHERE id = ? AND user_type = "delivery"', [updatedData, id], (err, result) => {
-    if (err) return res.status(500).send(err);
-    res.json({ message: 'Delivery user updated' });
-  });
-});
+    const updatedData = {
+      full_name, age, gender, email, phone, vehicle_type,
+      type, registration_date, status, user_type, vehicle_brand, vehicle_model,
+      // Only update if file was uploaded
+      ...(files?.delivery_photo?.[0] && { delivery_photo: files.delivery_photo[0].filename }),
+      ...(files?.vehicle_front?.[0] && { vehicle_front: files.vehicle_front[0].filename }),
+      ...(files?.vehicle_back?.[0] && { vehicle_back: files.vehicle_back[0].filename }),
+      ...(files?.rc_front?.[0] && { rc_front: files.rc_front[0].filename }),
+      ...(files?.rc_back?.[0] && { rc_back: files.rc_back[0].filename }),
+      ...(files?.license_photo?.[0] && { license_photo: files.license_photo[0].filename }),
+    };
+
+    db.query('UPDATE users SET ? WHERE id = ? AND user_type = "delivery"', [updatedData, id], (err, result) => {
+      if (err) return res.status(500).send(err);
+      res.json({ message: 'Delivery user updated' });
+    });
+  }
+);
+
+
+// router.put('/delivery-update/:id', (req, res) => {
+//   const { id } = req.params;
+//   const updatedData = req.body;
+
+//   db.query('UPDATE users SET ? WHERE id = ? AND user_type = "delivery"', [updatedData, id], (err, result) => {
+//     if (err) return res.status(500).send(err);
+//     res.json({ message: 'Delivery user updated' });
+//   });
+// });
 
 router.delete('/delivery-delete/:id', (req, res) => {
   const { id } = req.params;
