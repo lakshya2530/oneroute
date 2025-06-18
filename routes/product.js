@@ -71,7 +71,12 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
 router.get('/product-list', (req, res) => {
     db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json(results);
+         // Parse the images string field back to an array
+    const formattedResults = results.map(product => ({
+      ...product,
+      images: JSON.parse(product.images || '[]')
+    }));
+      res.json(formattedResults);
     });
   });
 
