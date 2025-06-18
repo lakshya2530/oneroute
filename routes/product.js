@@ -39,6 +39,35 @@ router.post('/product-create', upload.array('images', 5), (req, res) => {
   });
 });
 
+router.post('/bulk-product-create', upload.array('images'), (req, res) => {
+  const files = req.files;
+  const products = JSON.parse(req.body.products);
+
+  // Prepare data
+  const values = products.map(product => {
+    const productImages = product.image_keys.map(filename => {
+      const match = files.find(file => file.originalname === filename);
+      return match ? match.filename : null;
+    }).filter(Boolean); // remove any nulls
+
+    return [
+      product.name,
+      product.description,
+      product.price,
+      product.category,
+      JSON.stringify(productImages), // store image list as JSON
+      product.status || 'active'
+    ];
+  });
+
+  const sql = `INSERT INTO products (name, description, price, category, images, status) VALUES ?`;
+
+  db.query(sql, [values], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Bulk products uploaded with images', inserted: result.affectedRows });
+  });
+});
+
 router.get('/product-list', (req, res) => {
     db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
       if (err) return res.status(500).json({ error: err.message });
