@@ -47,6 +47,7 @@ const productRoutes = require('./routes/product');
 //Admin
 app.use('/admin', userAdminDashboardRoutes);
 app.use('/admin', productRoutes);
+app.use('/uploads', express.static('uploads'));
 
 
 // Socket.io real-time logic
