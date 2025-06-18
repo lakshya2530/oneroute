@@ -178,7 +178,9 @@ router.post(
     { name: 'delivery_photo', maxCount: 1 },
     { name: 'vehicle_front', maxCount: 1 },
     { name: 'vehicle_back', maxCount: 1 },
-    { name: 'license_photo', maxCount: 1 }
+    { name: 'license_photo', maxCount: 1 },
+    { name: 'rc_front', maxCount: 1 },
+    { name: 'rc_back', maxCount: 1 }
   ]),
   (req, res) => {
     const {
