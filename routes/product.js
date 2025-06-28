@@ -21,15 +21,20 @@ const upload = multer({ storage, limits: { files: 5 } });
 
 // Create Product
 router.post('/product-create', upload.array('images', 5), (req, res) => {
-  const { name, description, price, category, status = 'active' } = req.body;
+  const { name, description, actual_price,selling_price, category, specifications, status = 'active' } = req.body;
   const images = req.files.map(file => file.filename);
-
+  let parsedSpecifications = [];
+  parsedSpecifications = typeof specifications === 'string'
+      ? JSON.parse(specifications)
+      : specifications;
   const product = {
     name,
     description,
-    price,
+    actual_price,
+    selling_price,
     category,
     images: JSON.stringify(images),
+    specifications: JSON.stringify(parsedSpecifications), // save as JSON string
     status
   };
 
@@ -53,14 +58,15 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
     return [
       product.name,
       product.description,
-      product.price,
+      product.actual_price,
+      product.selling_price,
       product.category,
       JSON.stringify(productImages), // store image list as JSON
       product.status || 'active'
     ];
   });
 
-  const sql = `INSERT INTO products (name, description, price, category, images, status) VALUES ?`;
+  const sql = `INSERT INTO products (name, description, actual_price, selling_price, category, images, status) VALUES ?`;
 
   db.query(sql, [values], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
@@ -69,28 +75,77 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
 });
 
 router.get('/product-list', (req, res) => {
-    db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
-      if (err) return res.status(500).json({ error: err.message });
-         // Parse the images string field back to an array
-    const formattedResults = results.map(product => ({
-      ...product,
-      images: JSON.parse(product.images || '[]')
-    }));
-      res.json(formattedResults);
-    });
+  const { category } = req.query;
+
+  if (!category) {
+    return getProducts(); // no filter
+  }
+
+  const sql = 'SELECT id FROM categories WHERE LOWER(name) = ?';
+  db.query(sql, [category.toLowerCase()], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (result.length === 0) return res.json([]); // no such category
+
+    const categoryId = result[0].id;
+    getProducts(categoryId);
   });
+
+  function getProducts(categoryId = null) {
+    let sql = 'SELECT * FROM products';
+    const values = [];
+
+    if (categoryId !== null) {
+      sql += ' WHERE category = ?';
+      values.push(categoryId);
+    }
+
+    sql += ' ORDER BY id DESC';
+
+    db.query(sql, values, (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const formatted = results.map(p => ({
+        ...p,
+        images: JSON.parse(p.images || '[]'),
+        specifications: JSON.parse(p.specifications || '[]')
+      }));
+
+      res.json(formatted);
+    });
+  }
+});
+
+// router.get('/product-list', (req, res) => {
+//     db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
+//       if (err) return res.status(500).json({ error: err.message });
+//          // Parse the images string field back to an array
+//     const formattedResults = results.map(product => ({
+//       ...product,
+//       images: JSON.parse(product.images || '[]'),
+//       specifications: JSON.parse(product.specifications || '[]')
+
+//     }));
+//       res.json(formattedResults);
+//     });
+//   });
 
   
   router.put('/product-update/:id', upload.array('images', 5), (req, res) => {
     const { id } = req.params;
-    const { name, description, price, category, status } = req.body;
-    let updatedData = { name, description, price, category, status };
+    const { name, description, actual_price, selling_price, category,specifications, status } = req.body;
+    let updatedData = { name, description, actual_price, selling_price, category, status };
   
     if (req.files && req.files.length > 0) {
       const images = req.files.map(file => file.filename);
       updatedData.images = JSON.stringify(images);
     }
-  
+    if (specifications) {
+      try {
+        updatedData.specifications = JSON.stringify(JSON.parse(specifications));
+      } catch (e) {
+        return res.status(400).json({ error: 'Invalid specifications format' });
+      }
+    }
     db.query('UPDATE products SET ? WHERE id = ?', [updatedData, id], (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ message: 'Product updated' });
@@ -116,7 +171,53 @@ router.get('/product-list', (req, res) => {
     });
   });
 
+  router.post('/category-create', (req, res) => {
+    const { name } = req.body;
   
+    const product = {
+      name
+    };
+  
+    db.query('INSERT INTO categories SET ?', product, (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Category created', id: result.insertId });
+    });
+  });
+  
+  router.get('/category-list', (req, res) => {
+    db.query('SELECT * FROM categories ORDER BY id DESC', (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+         // Parse the images string field back to an array
+    const formattedResults = results.map(product => ({
+      ...product
+    }));
+      res.json(formattedResults);
+    });
+  });
+
+  
+  router.put('/category-update/:id', (req, res) => {
+    const { id } = req.params;
+    const { name } = req.body;
+    let updatedData = { name };
+  
+ 
+  
+    db.query('UPDATE categories SET ? WHERE id = ?', [updatedData, id], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Category updated' });
+    });
+  });
+
+  
+  router.delete('/category-delete/:id', (req, res) => {
+    const { id } = req.params;
+    db.query('DELETE FROM categories WHERE id = ?', [id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Category deleted' });
+    });
+  });
+
 
   router.get('/orders-list', (req, res) => {
     db.query('SELECT * FROM orders ORDER BY id DESC', (err, results) => {
@@ -125,12 +226,53 @@ router.get('/product-list', (req, res) => {
     });
   });
 
-   router.get('/tickets-list', (req, res) => {
-    db.query('SELECT * FROM tickets ORDER BY id DESC', (err, results) => {
+  //  router.get('/tickets-list', (req, res) => {
+  //   db.query('SELECT * FROM tickets ORDER BY id DESC', (err, results) => {
+  //     if (err) return res.status(500).json({ error: err.message });
+  //     res.json(results);
+  //   });
+  // });
+
+  router.get('/tickets-list', (req, res) => {
+    const sql = `
+      SELECT t.*, 
+        (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', r.id, 'message', r.message, 'created_at', r.created_at))
+         FROM ticket_replies r 
+         WHERE r.ticket_id = t.id) AS replies
+      FROM tickets t
+      ORDER BY t.id DESC
+    `;
+  
+    db.query(sql, (err, results) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json(results);
+  
+      // Parse JSON replies string to object
+      const formatted = results.map(t => ({
+        ...t,
+        replies: JSON.parse(t.replies || '[]')
+      }));
+  
+      res.json(formatted);
     });
   });
+
+  
+  router.post('/tickets/:id/reply', (req, res) => {
+    const ticketId = req.params.id;
+    const { message } = req.body;
+  
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+  
+    const sql = 'INSERT INTO ticket_replies (ticket_id, message) VALUES (?, ?)';
+    db.query(sql, [ticketId, message], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+  
+      res.json({ success: true, message: 'Reply added successfully', reply_id: result.insertId });
+    });
+  });
+  
 
   router.post('/cms-page-update', (req, res) => {
     const { slug, user_type, description, status = 1 } = req.body;
