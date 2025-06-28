@@ -111,28 +111,35 @@ router.get('/product-list', (req, res) => {
       const formatted = results.map(p => ({
         ...p,
         images: JSON.parse(p.images || '[]'),
-        specifications: JSON.parse(p.specifications || '[]')
+
+        // ✅ Safely parse specifications
+        specifications: (() => {
+          try {
+            return JSON.parse(p.specifications || '[]');
+          } catch (e) {
+            return []; // fallback if invalid JSON
+          }
+        })()
       }));
 
       res.json(formatted);
     });
   }
 
-  // If no category, fetch all products
   if (!category) {
-    return getProducts(); // ← early return
+    return getProducts();
   }
 
-  // Category is a name → fetch ID first
   const sql = 'SELECT id FROM categories WHERE LOWER(name) = ?';
   db.query(sql, [category.toLowerCase()], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (result.length === 0) return res.json([]); // no such category
+    if (result.length === 0) return res.json([]);
 
     const categoryId = result[0].id;
     getProducts(categoryId);
   });
 });
+
 
   
   router.put('/product-update/:id', upload.array('images', 5), (req, res) => {
