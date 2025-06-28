@@ -77,19 +77,6 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
 router.get('/product-list', (req, res) => {
   const { category } = req.query;
 
-  if (!category) {
-    return getProducts(); // no filter
-  }
-
-  const sql = 'SELECT id FROM categories WHERE LOWER(name) = ?';
-  db.query(sql, [category.toLowerCase()], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (result.length === 0) return res.json([]); // no such category
-
-    const categoryId = result[0].id;
-    getProducts(categoryId);
-  });
-
   function getProducts(categoryId = null) {
     let sql = 'SELECT * FROM products';
     const values = [];
@@ -113,7 +100,23 @@ router.get('/product-list', (req, res) => {
       res.json(formatted);
     });
   }
+
+  // If no category, fetch all products
+  if (!category) {
+    return getProducts(); // ← early return
+  }
+
+  // Category is a name → fetch ID first
+  const sql = 'SELECT id FROM categories WHERE LOWER(name) = ?';
+  db.query(sql, [category.toLowerCase()], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (result.length === 0) return res.json([]); // no such category
+
+    const categoryId = result[0].id;
+    getProducts(categoryId);
+  });
 });
+
 
 // router.get('/product-list', (req, res) => {
 //     db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
