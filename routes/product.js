@@ -74,63 +74,22 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
   });
 });
 
+
+
+
 router.get('/product-list', (req, res) => {
-  const { category } = req.query;
-
-  function getProducts(categoryId = null) {
-    let sql = 'SELECT * FROM products';
-    const values = [];
-
-    if (categoryId !== null) {
-      sql += ' WHERE category = ?';
-      values.push(categoryId);
-    }
-
-    sql += ' ORDER BY id DESC';
-
-    db.query(sql, values, (err, results) => {
+    db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
       if (err) return res.status(500).json({ error: err.message });
+         // Parse the images string field back to an array
+    const formattedResults = results.map(product => ({
+      ...product,
+      images: JSON.parse(product.images || '[]'),
+      specifications: JSON.parse(product.specifications || '[]')
 
-      const formatted = results.map(p => ({
-        ...p,
-        images: JSON.parse(p.images || '[]'),
-        specifications: JSON.parse(p.specifications || '[]')
-      }));
-
-      res.json(formatted);
+    }));
+      res.json(formattedResults);
     });
-  }
-
-  // If no category, fetch all products
-  if (!category) {
-    return getProducts(); // ← early return
-  }
-
-  // Category is a name → fetch ID first
-  const sql = 'SELECT id FROM categories WHERE LOWER(name) = ?';
-  db.query(sql, [category.toLowerCase()], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (result.length === 0) return res.json([]); // no such category
-
-    const categoryId = result[0].id;
-    getProducts(categoryId);
   });
-});
-
-
-// router.get('/product-list', (req, res) => {
-//     db.query('SELECT * FROM products ORDER BY id DESC', (err, results) => {
-//       if (err) return res.status(500).json({ error: err.message });
-//          // Parse the images string field back to an array
-//     const formattedResults = results.map(product => ({
-//       ...product,
-//       images: JSON.parse(product.images || '[]'),
-//       specifications: JSON.parse(product.specifications || '[]')
-
-//     }));
-//       res.json(formattedResults);
-//     });
-//   });
 
   
   router.put('/product-update/:id', upload.array('images', 5), (req, res) => {
