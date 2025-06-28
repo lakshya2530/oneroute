@@ -23,10 +23,16 @@ const upload = multer({ storage, limits: { files: 5 } });
 router.post('/product-create', upload.array('images', 5), (req, res) => {
   const { name, description, actual_price,selling_price, category, specifications, status = 'active' } = req.body;
   const images = req.files.map(file => file.filename);
-  let parsedSpecifications = [];
-  parsedSpecifications = typeof specifications === 'string'
-      ? JSON.parse(specifications)
-      : specifications;
+  let parsedSpecs = [];
+
+  try {
+    parsedSpecs = typeof req.body.specifications === 'string'
+      ? JSON.parse(req.body.specifications)
+      : req.body.specifications;
+  } catch (e) {
+    parsedSpecs = [];
+  }
+  
   const product = {
     name,
     description,
@@ -34,7 +40,7 @@ router.post('/product-create', upload.array('images', 5), (req, res) => {
     selling_price,
     category,
     images: JSON.stringify(images),
-    specifications: JSON.stringify(parsedSpecifications), // save as JSON string
+    specifications: JSON.stringify(parsedSpecs), // save as JSON string
     status
   };
 
@@ -48,12 +54,22 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
   const files = req.files;
   const products = JSON.parse(req.body.products);
 
-  // Prepare data
+  // Prepare values for bulk insert
   const values = products.map(product => {
+    // Map image filenames
     const productImages = product.image_keys.map(filename => {
       const match = files.find(file => file.originalname === filename);
       return match ? match.filename : null;
-    }).filter(Boolean); // remove any nulls
+    }).filter(Boolean); // remove nulls
+
+    // Safely stringify specifications
+    const specifications = (() => {
+      try {
+        return JSON.stringify(product.specifications || []);
+      } catch (e) {
+        return '[]';
+      }
+    })();
 
     return [
       product.name,
@@ -61,18 +77,57 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
       product.actual_price,
       product.selling_price,
       product.category,
-      JSON.stringify(productImages), // store image list as JSON
-      product.status || 'active'
+      JSON.stringify(productImages), // images
+      product.status || 'active',
+      specifications // ✅ NEW field
     ];
   });
 
-  const sql = `INSERT INTO products (name, description, actual_price, selling_price, category, images, status) VALUES ?`;
+  const sql = `
+    INSERT INTO products 
+    (name, description, actual_price, selling_price, category, images, status, specifications) 
+    VALUES ?
+  `;
 
   db.query(sql, [values], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Bulk products uploaded with images', inserted: result.affectedRows });
+    res.json({
+      message: 'Bulk products uploaded with images and specifications',
+      inserted: result.affectedRows
+    });
   });
 });
+
+
+// router.post('/bulk-product-create', upload.array('images'), (req, res) => {
+//   const files = req.files;
+//   const products = JSON.parse(req.body.products);
+
+//   // Prepare data
+//   const values = products.map(product => {
+//     const productImages = product.image_keys.map(filename => {
+//       const match = files.find(file => file.originalname === filename);
+//       return match ? match.filename : null;
+//     }).filter(Boolean); // remove any nulls
+
+//     return [
+//       product.name,
+//       product.description,
+//       product.actual_price,
+//       product.selling_price,
+//       product.category,
+//       JSON.stringify(productImages), // store image list as JSON
+//       product.status || 'active'
+//     ];
+//   });
+
+//   const sql = `INSERT INTO products (name, description, actual_price, selling_price, category, images, status) VALUES ?`;
+
+//   db.query(sql, [values], (err, result) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     res.json({ message: 'Bulk products uploaded with images', inserted: result.affectedRows });
+//   });
+// });
 
 
 
