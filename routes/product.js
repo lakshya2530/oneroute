@@ -246,27 +246,40 @@ router.get('/product-list', (req, res) => {
   // });
 
   router.get('/tickets-list', (req, res) => {
-    const sql = `
-      SELECT t.*, 
-        (SELECT JSON_ARRAYAGG(JSON_OBJECT('id', r.id, 'message', r.message, 'created_at', r.created_at))
-         FROM ticket_replies r 
-         WHERE r.ticket_id = t.id) AS replies
-      FROM tickets t
-      ORDER BY t.id DESC
-    `;
+    const ticketSql = 'SELECT * FROM tickets ORDER BY id DESC';
   
-    db.query(sql, (err, results) => {
+    db.query(ticketSql, (err, tickets) => {
       if (err) return res.status(500).json({ error: err.message });
   
-      // Parse JSON replies string to object
-      const formatted = results.map(t => ({
-        ...t,
-        replies: JSON.parse(t.replies || '[]')
-      }));
+      if (tickets.length === 0) return res.json([]);
   
-      res.json(formatted);
+      const ticketIds = tickets.map(t => t.id);
+  
+      const replySql = 'SELECT * FROM ticket_replies WHERE ticket_id IN (?)';
+      db.query(replySql, [ticketIds], (err, replies) => {
+        if (err) return res.status(500).json({ error: err.message });
+  
+        // Group replies by ticket_id
+        const replyMap = {};
+        replies.forEach(r => {
+          if (!replyMap[r.ticket_id]) replyMap[r.ticket_id] = [];
+          replyMap[r.ticket_id].push({
+            id: r.id,
+            message: r.message,
+            created_at: r.created_at
+          });
+        });
+  
+        const finalData = tickets.map(t => ({
+          ...t,
+          replies: replyMap[t.id] || []
+        }));
+  
+        res.json(finalData);
+      });
     });
   });
+  
 
   
   router.post('/tickets/:id/reply', (req, res) => {
