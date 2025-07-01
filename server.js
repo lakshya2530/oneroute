@@ -105,8 +105,8 @@ if (process.env.NODE_ENV === 'production') {
 
   // ✅ Ensure these files exist (generate with OpenSSL if needed)
   const options = {
-    key: fs.readFileSync('./ssl/private-key.pem'),
-    cert: fs.readFileSync('./ssl/certificate.pem'),
+    key: fs.readFileSync('./ssl/key.pem'),
+    cert: fs.readFileSync('./ssl/cert.pem'),
   };
 
   server = https.createServer(options, app);
