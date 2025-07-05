@@ -239,53 +239,133 @@ router.get('/product-list', (req, res) => {
       res.json({ message: 'Status updated' });
     });
   });
-
   router.post('/category-create', (req, res) => {
-    const { name } = req.body;
+    const { name, parent_id = null } = req.body;
   
-    const product = {
-      name
-    };
+    const category = { name, parent_id };
   
-    db.query('INSERT INTO categories SET ?', product, (err, result) => {
+    db.query('INSERT INTO categories SET ?', category, (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ message: 'Category created', id: result.insertId });
     });
   });
-  
+
   router.get('/category-list', (req, res) => {
-    db.query('SELECT * FROM categories ORDER BY id DESC', (err, results) => {
-      if (err) return res.status(500).json({ error: err.message });
-         // Parse the images string field back to an array
-    const formattedResults = results.map(product => ({
-      ...product
-    }));
-      res.json(formattedResults);
-    });
-  });
+  const sql = `
+    SELECT 
+      c1.id AS id,
+      c1.name AS name,
+      c1.parent_id,
+      c2.name AS parent_name
+    FROM categories c1
+    LEFT JOIN categories c2 ON c1.parent_id = c2.id
+    ORDER BY c1.id DESC
+  `;
 
-  
-  router.put('/category-update/:id', (req, res) => {
-    const { id } = req.params;
-    const { name } = req.body;
-    let updatedData = { name };
-  
- 
-  
-    db.query('UPDATE categories SET ? WHERE id = ?', [updatedData, id], (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: 'Category updated' });
-    });
+  db.query(sql, (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(results);
   });
+});
 
-  
-  router.delete('/category-delete/:id', (req, res) => {
-    const { id } = req.params;
+
+router.put('/category-update/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, parent_id = null } = req.body;
+
+  const updatedData = { name, parent_id };
+
+  db.query('UPDATE categories SET ? WHERE id = ?', [updatedData, id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Category updated' });
+  });
+});
+
+
+router.delete('/category-delete/:id', (req, res) => {
+  const { id } = req.params;
+
+  // Optional: check for subcategories and prevent delete
+  db.query('SELECT COUNT(*) AS count FROM categories WHERE parent_id = ?', [id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (result[0].count > 0) {
+      return res.status(400).json({ message: 'Cannot delete category with subcategories' });
+    }
+
     db.query('DELETE FROM categories WHERE id = ?', [id], (err) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ message: 'Category deleted' });
     });
   });
+});
+
+
+router.get('/main-categories', (req, res) => {
+  db.query('SELECT * FROM categories WHERE parent_id IS NULL', (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(results);
+  });
+});
+
+
+router.get('/sub-categories/:parentId', (req, res) => {
+  const { parentId } = req.params;
+
+  db.query('SELECT * FROM categories WHERE parent_id = ?', [parentId], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(results);
+  });
+});
+
+
+
+  // router.post('/category-create', (req, res) => {
+  //   const { name } = req.body;
+  
+  //   const product = {
+  //     name
+  //   };
+  
+  //   db.query('INSERT INTO categories SET ?', product, (err, result) => {
+  //     if (err) return res.status(500).json({ error: err.message });
+  //     res.json({ message: 'Category created', id: result.insertId });
+  //   });
+  // });
+  
+  // router.get('/category-list', (req, res) => {
+  //   db.query('SELECT * FROM categories ORDER BY id DESC', (err, results) => {
+  //     if (err) return res.status(500).json({ error: err.message });
+  //        // Parse the images string field back to an array
+  //   const formattedResults = results.map(product => ({
+  //     ...product
+  //   }));
+  //     res.json(formattedResults);
+  //   });
+  // });
+
+  
+  // router.put('/category-update/:id', (req, res) => {
+  //   const { id } = req.params;
+  //   const { name } = req.body;
+  //   let updatedData = { name };
+  
+ 
+  
+  //   db.query('UPDATE categories SET ? WHERE id = ?', [updatedData, id], (err, result) => {
+  //     if (err) return res.status(500).json({ error: err.message });
+  //     res.json({ message: 'Category updated' });
+  //   });
+  // });
+
+  
+  // router.delete('/category-delete/:id', (req, res) => {
+  //   const { id } = req.params;
+  //   db.query('DELETE FROM categories WHERE id = ?', [id], (err) => {
+  //     if (err) return res.status(500).json({ error: err.message });
+  //     res.json({ message: 'Category deleted' });
+  //   });
+  // });
 
 
   router.get('/orders-list', (req, res) => {
