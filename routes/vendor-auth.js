@@ -3,9 +3,24 @@ const bcrypt = require('bcrypt');
 const db = require('../db/connection');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const path = require('path');
+const verifyToken = require('../middleware/verifyToken');
 
 const JWT_SECRET = 'your_jwt_secret_key'; // 🔐 Use .env in production
 
+
+// Multer configuration directly in the same file
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+      cb(null, 'uploads/profiles'); // Make sure this folder exists
+    },
+    filename: function (req, file, cb) {
+      const uniqueName = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, uniqueName + path.extname(file.originalname));
+    }
+  });
+  const upload = multer({ storage: storage });
 // ✅ Signup
 router.post('/vendor-signup', async (req, res) => {
   const { email, password, confirm_password } = req.body;
@@ -67,6 +82,28 @@ router.post('/vendor-login', (req, res) => {
         user,
         token,
       });
+    });
+  });
+
+  router.put('/update-profile', verifyToken, upload.single('image'), (req, res) => {
+    const { full_name, user_name, age, gender, bio } = req.body;
+    const userId = req.user.id; // Extracted from token
+  
+    const updatedData = {
+      full_name,
+      user_name,
+      age,
+      gender,
+      bio
+    };
+  
+    if (req.file) {
+      updatedData.image = req.file.filename;
+    }
+  
+    db.query('UPDATE users SET ? WHERE id = ?', [updatedData, userId], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Profile updated successfully' });
     });
   });
 
