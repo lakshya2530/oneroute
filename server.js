@@ -134,10 +134,12 @@ app.use('/uploads', express.static('uploads'));
 const userAdminDashboardRoutes = require('./routes/admin');
 const productRoutes = require('./routes/product');
 const vendorAuthRoutes = require('./routes/vendor-auth');
+const vendorShopRoutes = require('./routes/vendor-shop');
 
 app.use('/admin', userAdminDashboardRoutes);
 app.use('/admin', productRoutes);
 app.use('/api', vendorAuthRoutes);
+app.use('/api', vendorShopRoutes);
 
 // 💬 Real-time socket handling
 io.on('connection', (socket) => {
