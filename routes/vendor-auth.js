@@ -2,6 +2,9 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const db = require('../db/connection');
 const router = express.Router();
+const jwt = require('jsonwebtoken');
+
+const JWT_SECRET = 'your_jwt_secret_key'; // 🔐 Use .env in production
 
 // ✅ Signup
 router.post('/vendor-signup', async (req, res) => {
@@ -39,19 +42,32 @@ router.post('/vendor-signup', async (req, res) => {
 
 // ✅ Login
 router.post('/vendor-login', (req, res) => {
-  const { email, password } = req.body;
-
-  db.query('SELECT * FROM users WHERE email = ? AND user_type = "vendor"', [email], async (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
-
-    const user = results[0];
-
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
-
-    res.json({ message: 'Login successful', user: { id: user.id, email: user.email } });
+    const { email, password } = req.body;
+  
+    const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "vendor"';
+    db.query(sql, [email], async (err, results) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+  
+      const user = results[0];
+  
+      const match = await bcrypt.compare(password, user.password);
+      if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+  
+      // ✅ Generate JWT token
+      const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, JWT_SECRET, {
+        expiresIn: '7d',
+      });
+  
+      // Optional: exclude password from response
+      delete user.password;
+  
+      res.json({
+        message: 'Login successful',
+        user,
+        token,
+      });
+    });
   });
-});
 
 module.exports = router;
