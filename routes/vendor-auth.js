@@ -178,7 +178,7 @@ router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
   
   router.get('/cms-page/privacy-policy', (req, res) => {
     const { slug, user_type } = req.params;
-    const sql = 'SELECT * FROM cms_pages WHERE slug = privacy-policy AND user_type = vendor';
+    const sql = "SELECT * FROM cms_pages WHERE slug = 'privacy-policy' AND user_type = 'vendor'";
   
     db.query(sql, [slug, user_type], (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -189,7 +189,7 @@ router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
 
   router.get('/cms-page/terms-condition', (req, res) => {
     const { slug, user_type } = req.params;
-    const sql = 'SELECT * FROM cms_pages WHERE slug = terms-condition AND user_type = vendor';
+    const sql = "SELECT * FROM cms_pages WHERE slug = 'terms-condition' AND user_type = 'vendor'";
   
     db.query(sql, [slug, user_type], (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
