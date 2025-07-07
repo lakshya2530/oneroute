@@ -1,6 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
-const db = require('../db/connection'); // adjust path
+const db = require('../db/connection');
 const router = express.Router();
 
 // ✅ Signup
