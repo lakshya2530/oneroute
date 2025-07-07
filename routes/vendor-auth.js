@@ -5,7 +5,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
-const verifyToken = require('../middleware/verifyToken');
+const verifyToken = require('../middleware/auth');
 
 const JWT_SECRET = 'your_jwt_secret_key'; // 🔐 Use .env in production
 
