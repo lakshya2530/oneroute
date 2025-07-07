@@ -106,4 +106,21 @@ router.post('/vendor-login', (req, res) => {
     });
   });
 
+  router.get('/get-profile/:id', (req, res) => {
+    const { id } = req.params;
+  
+    db.query('SELECT * FROM users WHERE id = ?', [id], (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (results.length === 0) return res.status(404).json({ message: 'User not found' });
+  
+      const user = results[0];
+  
+    //   user.image = user.image
+    //     ? `${BASE_URL}/uploads/profiles/${user.image}`
+    //     : null;
+  
+      res.json(user);
+    });
+  });
+
 module.exports = router;
