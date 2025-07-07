@@ -123,4 +123,58 @@ router.post('/vendor-login', (req, res) => {
     });
   });
 
+  router.post('/vendor-bank-add', verifyToken, (req, res) => {
+  const vendor_id = req.user.id; // or req.user.vendor_id
+  const { account_holder_name, account_number, ifsc_code, branch_name } = req.body;
+
+  const sql = `INSERT INTO vendor_bank_accounts SET ?`;
+  const data = {
+    vendor_id,
+    account_holder_name,
+    account_number,
+    ifsc_code,
+    branch_name
+  };
+
+  db.query(sql, data, (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Bank account added', id: result.insertId });
+  });
+});
+
+
+router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
+    const vendor_id = req.user.id;
+    const { id } = req.params;
+    const updatedData = req.body;
+  
+    const sql = `UPDATE vendor_bank_accounts SET ? WHERE id = ? AND vendor_id = ?`;
+  
+    db.query(sql, [updatedData, id, vendor_id], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Bank account updated' });
+    });
+  });
+
+  
+  router.get('/vendor-bank-list', verifyToken, (req, res) => {
+    const vendor_id = req.user.id;
+  
+    db.query('SELECT * FROM vendor_bank_accounts WHERE vendor_id = ?', [vendor_id], (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(results);
+    });
+  });
+
+  router.delete('/vendor-bank-delete/:id', verifyToken, (req, res) => {
+    const vendor_id = req.user.id;
+    const { id } = req.params;
+  
+    db.query('DELETE FROM vendor_bank_accounts WHERE id = ? AND vendor_id = ?', [id, vendor_id], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Bank account deleted' });
+    });
+  });
+  
+
 module.exports = router;
