@@ -176,5 +176,26 @@ router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
     });
   });
   
+  router.get('/cms-page/privacy-policy', (req, res) => {
+    const { slug, user_type } = req.params;
+    const sql = 'SELECT * FROM cms_pages WHERE slug = privacy-policy AND user_type = vendor';
+  
+    db.query(sql, [slug, user_type], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (result.length === 0) return res.status(404).json({ message: 'Page not found' });
+      res.json(result[0]);
+    });
+  });
 
+  router.get('/cms-page/terms-condition', (req, res) => {
+    const { slug, user_type } = req.params;
+    const sql = 'SELECT * FROM cms_pages WHERE slug = terms-condition AND user_type = vendor';
+  
+    db.query(sql, [slug, user_type], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (result.length === 0) return res.status(404).json({ message: 'Page not found' });
+      res.json(result[0]);
+    });
+  });
+  
 module.exports = router;
