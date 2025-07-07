@@ -7,7 +7,6 @@ const multer = require('multer');
 const path = require('path');
 const verifyToken = require('../middleware/auth');
 
-const JWT_SECRET = 'your_jwt_secret_key'; // 🔐 Use .env in production
 
 
 // Multer configuration directly in the same file
