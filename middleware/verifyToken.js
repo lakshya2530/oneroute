@@ -9,6 +9,7 @@ module.exports = function (req, res, next) {
   try {
     const decoded = jwt.verify(token.replace('Bearer ', ''), 'your_jwt_secret');
     req.user = decoded; // Attach decoded payload to req.user
+    console.log(decoded,'decoded');
     next();
   } catch (err) {
     return res.status(400).json({ message: 'Invalid token' });
