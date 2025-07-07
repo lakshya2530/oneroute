@@ -105,8 +105,8 @@ if (process.env.NODE_ENV === 'production') {
 
   // ✅ Ensure these files exist (generate with OpenSSL if needed)
   const options = {
-    key: fs.readFileSync('./ssl/key.pem'),
-    cert: fs.readFileSync('./ssl/cert.pem'),
+    key: fs.readFileSync('./ssl/private-key.pem'),
+    cert: fs.readFileSync('./ssl/certificate.pem'),
   };
 
   server = https.createServer(options, app);
@@ -133,8 +133,11 @@ app.use('/uploads', express.static('uploads'));
 // 🛣️ Routes
 const userAdminDashboardRoutes = require('./routes/admin');
 const productRoutes = require('./routes/product');
+const vendorAuthRoutes = require('./routes/vendor-auth');
+
 app.use('/admin', userAdminDashboardRoutes);
 app.use('/admin', productRoutes);
+app.use('/api', vendorAuthRoutes);
 
 // 💬 Real-time socket handling
 io.on('connection', (socket) => {
