@@ -69,7 +69,7 @@ router.post('/vendor-login', (req, res) => {
       if (!match) return res.status(401).json({ error: 'Invalid credentials' });
   
       // ✅ Generate JWT token
-      const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, JWT_SECRET, {
+      const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
         expiresIn: '7d',
       });
   
