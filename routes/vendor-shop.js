@@ -100,4 +100,60 @@ router.get('/vendor/shop', authenticate, (req, res) => {
   );
 });
 
+router.get('/vendor-orders', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+    const now = new Date();
+  
+    const sql = `
+      SELECT o.*, p.name AS product_name, c.full_name AS customer_name
+      FROM orders o
+      JOIN products p ON o.product_id = p.id
+      JOIN users c ON o.customer_id = c.id
+      WHERE p.vendor_id = ?
+    `;
+  
+    db.query(sql, [vendor_id], (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+  
+      const upcoming = [];
+      const past = [];
+  
+      results.forEach(order => {
+        const orderDate = new Date(order.delivery_date || order.order_date);
+        (orderDate >= now ? upcoming : past).push(order);
+      });
+  
+      res.json({ upcoming_orders: upcoming, past_orders: past });
+    });
+  });
+  
+
+  router.get('/vendor-analytics', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+  
+    const sql = `
+      SELECT 
+        COUNT(*) AS total_orders,
+        SUM(price) AS total_revenue,
+        SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_orders,
+        SUM(CASE WHEN status = 'shipped' THEN 1 ELSE 0 END) AS shipped_orders,
+        SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END) AS delivered_orders
+      FROM orders
+      WHERE vendor_id = ?
+    `;
+  
+    db.query(sql, [vendor_id], (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+  
+      const stats = results[0] || {};
+      res.json({
+        total_orders: stats.total_orders || 0,
+        total_revenue: stats.total_revenue || 0,
+        pending_orders: stats.pending_orders || 0,
+        shipped_orders: stats.shipped_orders || 0,
+        delivered_orders: stats.delivered_orders || 0
+      });
+    });
+  });
+  
 module.exports = router;

@@ -72,17 +72,38 @@ router.post('/vendor-login', (req, res) => {
       const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
         expiresIn: '7d',
       });
+
+          // ✅ Check if the vendor has a shop
+    const shopCheckSql = 'SELECT COUNT(*) AS shop_count FROM vendor_shops WHERE vendor_id = ?';
+    db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
+      if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
+
+      const has_shop = shopResult[0].shop_count > 0;
+
   
       // Optional: exclude password from response
       delete user.password;
-  
+
       res.json({
         message: 'Login successful',
-        user,
         token,
+        user: {
+          ...user,
+          has_shop
+        },
       });
     });
   });
+});
+  
+//       res.json({
+//         message: 'Login successful',
+//         token,
+//         user,
+//         has_shop
+//       });
+//     });
+//   });
 
   router.put('/update-profile', verifyToken, upload.single('image'), (req, res) => {
     const { full_name, user_name, age, gender, bio } = req.body;
@@ -197,5 +218,22 @@ router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
       res.json(result[0]);
     });
   });
+
+  router.get('/vendor-tickets', authenticate, (req, res) => {
+    const vendorId = req.user.id;
+  
+    const sql = `
+      SELECT ticket_id, title, description, status, created_at
+      FROM tickets
+      WHERE created_by = ?
+      ORDER BY created_at DESC
+    `;
+  
+    db.query(sql, [vendorId], (err, results) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      res.json({ tickets: results });
+    });
+  });
+  
   
 module.exports = router;
