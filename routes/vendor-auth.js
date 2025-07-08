@@ -219,7 +219,7 @@ router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
     });
   });
 
-  router.get('/vendor-tickets', authenticate, (req, res) => {
+  router.get('/vendor-tickets', verifyToken, (req, res) => {
     const vendorId = req.user.id;
   
     const sql = `
