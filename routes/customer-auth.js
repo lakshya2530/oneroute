@@ -21,7 +21,7 @@ const storage = multer.diskStorage({
   });
   const upload = multer({ storage: storage });
 // ✅ Signup
-router.post('/vendor-signup', async (req, res) => {
+router.post('/customer-signup', async (req, res) => {
   const { email, password, confirm_password } = req.body;
 
   if (!email || !password || !confirm_password) {
@@ -33,7 +33,7 @@ router.post('/vendor-signup', async (req, res) => {
   }
 
   // check if user already exists
-  db.query('SELECT * FROM users WHERE email = ? AND user_type = "vendor"', [email], async (err, results) => {
+  db.query('SELECT * FROM users WHERE email = ? AND user_type = "customer"', [email], async (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
     if (results.length > 0) return res.status(409).json({ error: 'Email already registered' });
 
@@ -42,23 +42,23 @@ router.post('/vendor-signup', async (req, res) => {
     const user = {
       email,
       password: hashedPassword,
-      user_type: 'vendor',
+      user_type: 'customer',
       status: 'active',
       registration_date: new Date()
     };
 
     db.query('INSERT INTO users SET ?', user, (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.status(201).json({ message: 'Vendor registered successfully', id: result.insertId });
+      res.status(201).json({ message: 'Customer registered successfully', id: result.insertId });
     });
   });
 });
 
 // ✅ Login
-router.post('/vendor-login', (req, res) => {
+router.post('/customer-login', (req, res) => {
     const { email, password } = req.body;
   
-    const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "vendor"';
+    const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "customer"';
     db.query(sql, [email], async (err, results) => {
       if (err) return res.status(500).json({ error: 'Database error' });
       if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
@@ -144,7 +144,7 @@ router.post('/vendor-login', (req, res) => {
     });
   });
 
-  router.post('/vendor-bank-add', verifyToken, (req, res) => {
+  router.post('/customer-bank-add', verifyToken, (req, res) => {
   const user_id = req.user.id; // or req.user.vendor_id
   const { account_holder_name, account_number, ifsc_code, branch_name } = req.body;
 
@@ -164,7 +164,7 @@ router.post('/vendor-login', (req, res) => {
 });
 
 
-router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
+router.put('/customer-bank-edit/:id', verifyToken, (req, res) => {
     const user_id = req.user.id;
     const { id } = req.params;
     const updatedData = req.body;
@@ -178,7 +178,7 @@ router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
   });
 
   
-  router.get('/vendor-bank-list', verifyToken, (req, res) => {
+  router.get('/customer-bank-list', verifyToken, (req, res) => {
     const user_id = req.user.id;
   
     db.query('SELECT * FROM vendor_bank_accounts WHERE user_id = ?', [user_id], (err, results) => {
@@ -187,7 +187,7 @@ router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
     });
   });
 
-  router.delete('/vendor-bank-delete/:id', verifyToken, (req, res) => {
+  router.delete('/customer-bank-delete/:id', verifyToken, (req, res) => {
     const user_id = req.user.id;
     const { id } = req.params;
   
@@ -199,7 +199,7 @@ router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
   
   router.get('/cms-page/privacy-policy', (req, res) => {
     const { slug, user_type } = req.params;
-    const sql = "SELECT * FROM cms_pages WHERE slug = 'privacy-policy' AND user_type = 'vendor'";
+    const sql = "SELECT * FROM cms_pages WHERE slug = 'privacy-policy' AND user_type = 'customer'";
   
     db.query(sql, [slug, user_type], (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
@@ -210,7 +210,7 @@ router.put('/vendor-bank-edit/:id', verifyToken, (req, res) => {
 
   router.get('/cms-page/terms-condition', (req, res) => {
     const { slug, user_type } = req.params;
-    const sql = "SELECT * FROM cms_pages WHERE slug = 'terms-condition' AND user_type = 'vendor'";
+    const sql = "SELECT * FROM cms_pages WHERE slug = 'terms-condition' AND user_type = 'customer'";
   
     db.query(sql, [slug, user_type], (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
