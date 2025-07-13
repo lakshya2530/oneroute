@@ -249,31 +249,59 @@ router.get('/customer/shops', (req, res) => {
   });
   
 
-router.get('/customer-orders', authenticate, (req, res) => {
-    const user_id = req.user.id;
+  router.get('/customer-orders', authenticate, (req, res) => {
+    const customer_id = req.user.id;
     const now = new Date();
   
     const sql = `
-      SELECT o.*, p.name AS product_name, c.full_name AS customer_name
+      SELECT 
+        o.*, 
+        p.name AS product_name, 
+        p.images, 
+        p.category,
+        u.full_name AS vendor_name
       FROM orders o
       JOIN products p ON o.product_id = p.id
-      JOIN users c ON o.customer_id = c.id
-      WHERE p.customer_id = ?
+      JOIN users u ON o.vendor_id = u.id
+      WHERE o.customer_id = ?
+      ORDER BY o.order_date DESC
     `;
   
-    db.query(sql, [user_id], (err, results) => {
+    db.query(sql, [customer_id], (err, results) => {
       if (err) return res.status(500).json({ error: err.message });
   
       const upcoming = [];
       const past = [];
   
       results.forEach(order => {
-        const orderDate = new Date(order.delivery_date || order.order_date);
-        (orderDate >= now ? upcoming : past).push(order);
+        const deliveryDate = new Date(order.delivery_date || order.order_date);
+        const images = (() => {
+          try {
+            return JSON.parse(order.images || '[]').map(
+              img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
+            );
+          } catch (e) {
+            return [];
+          }
+        })();
+  
+        const formattedOrder = {
+          ...order,
+          images,
+          product_name: order.product_name,
+          vendor_name: order.vendor_name,
+        };
+  
+        if (deliveryDate >= now) {
+          upcoming.push(formattedOrder);
+        } else {
+          past.push(formattedOrder);
+        }
       });
   
       res.json({ upcoming_orders: upcoming, past_orders: past });
     });
   });
+  
   
 module.exports = router;
