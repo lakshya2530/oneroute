@@ -137,6 +137,8 @@ const vendorAuthRoutes = require('./routes/vendor-auth');
 const vendorShopRoutes = require('./routes/vendor-shop');
 const vendorProductRoutes = require('./routes/vendor-product');
 const vendorAdRoutes = require('./routes/vendor-ads');
+const customerAuthRoutes = require('./routes/customer-auth');
+const customerHomeRoutes = require('./routes/customer-home');
 
 app.use('/admin', userAdminDashboardRoutes);
 app.use('/admin', productRoutes);
@@ -144,6 +146,8 @@ app.use('/api', vendorAuthRoutes);
 app.use('/api', vendorShopRoutes);
 app.use('/api/vendor', vendorProductRoutes);
 app.use('/api', vendorAdRoutes);
+app.use('/api', customerAuthRoutes);
+app.use('/api', customerHomeRoutes);
 
 // 💬 Real-time socket handling
 io.on('connection', (socket) => {
