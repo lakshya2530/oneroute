@@ -370,12 +370,33 @@ router.get('/main-categories', (req, res) => {
 });
 
 
+// router.get('/sub-categories/:parentId', (req, res) => {
+//   const { parentId } = req.params;
+
+//   db.query('SELECT * FROM categories WHERE parent_id = ?', [parentId], (err, results) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     res.json(results);
+//   });
+// });
+
 router.get('/sub-categories/:parentId', (req, res) => {
   const { parentId } = req.params;
 
   db.query('SELECT * FROM categories WHERE parent_id = ?', [parentId], (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(results);
+
+    const formatted = results.map(cat => ({
+      ...cat,
+      labels: (() => {
+        try {
+          return JSON.parse(cat.labels || '[]');
+        } catch (e) {
+          return [];
+        }
+      })()
+    }));
+
+    res.json(formatted);
   });
 });
 
