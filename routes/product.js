@@ -239,23 +239,86 @@ router.get('/product-list', (req, res) => {
       res.json({ message: 'Status updated' });
     });
   });
-  router.post('/category-create', (req, res) => {
-    const { name, parent_id = null } = req.body;
+//   router.post('/category-create', (req, res) => {
+//     const { name, parent_id = null } = req.body;
   
-    const category = { name, parent_id };
+//     const category = { name, parent_id };
   
-    db.query('INSERT INTO categories SET ?', category, (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: 'Category created', id: result.insertId });
-    });
-  });
+//     db.query('INSERT INTO categories SET ?', category, (err, result) => {
+//       if (err) return res.status(500).json({ error: err.message });
+//       res.json({ message: 'Category created', id: result.insertId });
+//     });
+//   });
 
-  router.get('/category-list', (req, res) => {
+//   router.get('/category-list', (req, res) => {
+//   const sql = `
+//     SELECT 
+//       c1.id AS id,
+//       c1.name AS name,
+//       c1.parent_id,
+//       c2.name AS parent_name
+//     FROM categories c1
+//     LEFT JOIN categories c2 ON c1.parent_id = c2.id
+//     ORDER BY c1.id DESC
+//   `;
+
+//   db.query(sql, (err, results) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     res.json(results);
+//   });
+// });
+
+
+// router.put('/category-update/:id', (req, res) => {
+//   const { id } = req.params;
+//   const { name, parent_id = null } = req.body;
+
+//   const updatedData = { name, parent_id };
+
+//   db.query('UPDATE categories SET ? WHERE id = ?', [updatedData, id], (err) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     res.json({ message: 'Category updated' });
+//   });
+// });
+
+router.post('/category-create', (req, res) => {
+  const { name, parent_id = null, labels = '' } = req.body;
+
+  const category = {
+    name,
+    parent_id,
+    labels: Array.isArray(labels) ? JSON.stringify(labels) : labels
+  };
+
+  db.query('INSERT INTO categories SET ?', category, (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Category created', id: result.insertId });
+  });
+});
+
+router.put('/category-update/:id', (req, res) => {
+  const { id } = req.params;
+  const { name, parent_id = null, labels = '' } = req.body;
+
+  const updatedData = {
+    name,
+    parent_id,
+    labels: Array.isArray(labels) ? JSON.stringify(labels) : labels
+  };
+
+  db.query('UPDATE categories SET ? WHERE id = ?', [updatedData, id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Category updated' });
+  });
+});
+
+router.get('/category-list', (req, res) => {
   const sql = `
     SELECT 
       c1.id AS id,
       c1.name AS name,
       c1.parent_id,
+      c1.labels,
       c2.name AS parent_name
     FROM categories c1
     LEFT JOIN categories c2 ON c1.parent_id = c2.id
@@ -264,23 +327,21 @@ router.get('/product-list', (req, res) => {
 
   db.query(sql, (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(results);
+
+    const formatted = results.map(cat => ({
+      ...cat,
+      labels: (() => {
+        try {
+          return JSON.parse(cat.labels || '[]');
+        } catch (e) {
+          return [];
+        }
+      })()
+    }));
+
+    res.json(formatted);
   });
 });
-
-
-router.put('/category-update/:id', (req, res) => {
-  const { id } = req.params;
-  const { name, parent_id = null } = req.body;
-
-  const updatedData = { name, parent_id };
-
-  db.query('UPDATE categories SET ? WHERE id = ?', [updatedData, id], (err) => {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ message: 'Category updated' });
-  });
-});
-
 
 router.delete('/category-delete/:id', (req, res) => {
   const { id } = req.params;
