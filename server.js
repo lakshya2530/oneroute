@@ -112,9 +112,10 @@ app.use('/api', require('./routes/customer-home'));
 // ✅ HTTP server
 const http = require('http');
 const httpServer = http.createServer(app);
-httpServer.listen(80, () => {
-  console.log('🚀 HTTP server running on port 80');
+httpServer.listen(8080, () => {
+  console.log('🚀 HTTP server running on port 8080');
 });
+
 
 // ✅ HTTPS server
 const https = require('https');
