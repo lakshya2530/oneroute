@@ -6,21 +6,26 @@
 // const { Server } = require('socket.io');
 
 // const app = express();
-
 // let server;
+
+// // ⚙️ Determine environment
 // if (process.env.NODE_ENV === 'production') {
 //   const https = require('https');
+
 //   const options = {
-//     key: fs.readFileSync('private-key.pem'),
-//     cert: fs.readFileSync('certificate.pem'),
+//     key: fs.readFileSync('./ssl/private-key.pem'),
+//     cert: fs.readFileSync('./ssl/certificate.pem'),
 //   };
+
 //   server = https.createServer(options, app);
+//   console.log('🚀 Running in HTTPS (production) mode');
 // } else {
 //   const http = require('http');
 //   server = http.createServer(app);
+//   console.log('🚀 Running in HTTP (development) mode');
 // }
 
-// // Initialize Socket.IO with the server
+// // ✅ Initialize Socket.IO
 // const io = new Server(server, {
 //   cors: {
 //     origin: '*',
@@ -28,66 +33,59 @@
 //   },
 // });
 
-
-// // Middleware
+// // 🌐 Middleware
 // app.use(cors());
 // app.use(express.json());
-// // app.use((req, res, next) => {
-// //   if (req.headers['x-forwarded-proto'] !== 'https') {
-// //     return res.redirect('https://' + req.headers.host + req.url);
-// //   }
-// //   next();
-// // });
-
-// // Routes
-
-// const userAdminDashboardRoutes = require('./routes/admin');
-// const productRoutes = require('./routes/product');
-
-// //Admin
-// app.use('/admin', userAdminDashboardRoutes);
-// app.use('/admin', productRoutes);
 // app.use('/uploads', express.static('uploads'));
 
+// // 🛣️ Routes
+// const userAdminDashboardRoutes = require('./routes/admin');
+// const productRoutes = require('./routes/product');
+// const vendorAuthRoutes = require('./routes/vendor-auth');
+// const vendorShopRoutes = require('./routes/vendor-shop');
+// const vendorProductRoutes = require('./routes/vendor-product');
+// const vendorAdRoutes = require('./routes/vendor-ads');
+// const customerAuthRoutes = require('./routes/customer-auth');
+// const customerHomeRoutes = require('./routes/customer-home');
 
-// // Socket.io real-time logic
-// // io.on('connection', (socket) => {
-// //   console.log('User connected:', socket.id);
+// app.use('/admin', userAdminDashboardRoutes);
+// app.use('/admin', productRoutes);
+// app.use('/api', vendorAuthRoutes);
+// app.use('/api', vendorShopRoutes);
+// app.use('/api/vendor', vendorProductRoutes);
+// app.use('/api', vendorAdRoutes);
+// app.use('/api', customerAuthRoutes);
+// app.use('/api', customerHomeRoutes);
 
-// //   socket.on('join', (userId) => {
-// //     socket.join(userId);
-// //     console.log(`User ${userId} joined their room`);
-// //   });
+// // 💬 Real-time socket handling
+// io.on('connection', (socket) => {
+//   console.log('✅ User connected:', socket.id);
 
-// //   socket.on('send_message', (data) => {
-// //     const { sender_id, receiver_id, content } = data;
+//   socket.on('join', (userId) => {
+//     socket.join(userId);
+//     console.log(`User ${userId} joined their room`);
+//   });
 
-// //     io.to(receiver_id).emit('receive_message', {
-// //       sender_id,
-// //       receiver_id,
-// //       content,
-// //       created_at: new Date()
-// //     });
+//   socket.on('send_message', (data) => {
+//     const { sender_id, receiver_id, content } = data;
 
-// //     console.log(`Message from ${sender_id} to ${receiver_id}: ${content}`);
-// //   });
+//     io.to(receiver_id).emit('receive_message', {
+//       sender_id,
+//       receiver_id,
+//       content,
+//       created_at: new Date()
+//     });
+//   });
 
-// //   socket.on('disconnect', () => {
-// //     console.log('User disconnected:', socket.id);
-// //   });
-// // });
-
-// // ✅ Corrected: start server with Socket.IO attached
-// server.listen(3000, () => {
-//   console.log('Server running on port 3000');
+//   socket.on('disconnect', () => {
+//     console.log('❌ User disconnected:', socket.id);
+//   });
 // });
 
-
-
-
-
-
-
+// // 🚀 Start server
+// server.listen(3000, () => {
+//   console.log(`✅ Server running on port 3000`);
+// });
 
 
 const express = require('express');
@@ -97,59 +95,46 @@ require('dotenv').config();
 const { Server } = require('socket.io');
 
 const app = express();
-let server;
+app.use(cors());
+app.use(express.json());
+app.use('/uploads', express.static('uploads'));
 
-// ⚙️ Determine environment
-if (process.env.NODE_ENV === 'production') {
-  const https = require('https');
+// 🛣️ Routes
+app.use('/admin', require('./routes/admin'));
+app.use('/admin', require('./routes/product'));
+app.use('/api', require('./routes/vendor-auth'));
+app.use('/api', require('./routes/vendor-shop'));
+app.use('/api/vendor', require('./routes/vendor-product'));
+app.use('/api', require('./routes/vendor-ads'));
+app.use('/api', require('./routes/customer-auth'));
+app.use('/api', require('./routes/customer-home'));
 
-  // ✅ Ensure these files exist (generate with OpenSSL if needed)
-  const options = {
-    key: fs.readFileSync('./ssl/private-key.pem'),
-    cert: fs.readFileSync('./ssl/certificate.pem'),
-  };
+// ✅ HTTP server
+const http = require('http');
+const httpServer = http.createServer(app);
+httpServer.listen(80, () => {
+  console.log('🚀 HTTP server running on port 80');
+});
 
-  server = https.createServer(options, app);
-  console.log('🚀 Running in HTTPS (production) mode');
-} else {
-  const http = require('http');
-  server = http.createServer(app);
-  console.log('🚀 Running in HTTP (development) mode');
-}
+// ✅ HTTPS server
+const https = require('https');
+const options = {
+  key: fs.readFileSync('./ssl/private-key.pem'),
+  cert: fs.readFileSync('./ssl/certificate.pem'),
+};
+const httpsServer = https.createServer(options, app);
+httpsServer.listen(3000, () => {
+  console.log('🔐 HTTPS server running on port 3000');
+});
 
-// ✅ Initialize Socket.IO
-const io = new Server(server, {
+// ✅ Socket.IO shared instance (on HTTPS only)
+const io = new Server(httpsServer, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
   },
 });
 
-// 🌐 Middleware
-app.use(cors());
-app.use(express.json());
-app.use('/uploads', express.static('uploads'));
-
-// 🛣️ Routes
-const userAdminDashboardRoutes = require('./routes/admin');
-const productRoutes = require('./routes/product');
-const vendorAuthRoutes = require('./routes/vendor-auth');
-const vendorShopRoutes = require('./routes/vendor-shop');
-const vendorProductRoutes = require('./routes/vendor-product');
-const vendorAdRoutes = require('./routes/vendor-ads');
-const customerAuthRoutes = require('./routes/customer-auth');
-const customerHomeRoutes = require('./routes/customer-home');
-
-app.use('/admin', userAdminDashboardRoutes);
-app.use('/admin', productRoutes);
-app.use('/api', vendorAuthRoutes);
-app.use('/api', vendorShopRoutes);
-app.use('/api/vendor', vendorProductRoutes);
-app.use('/api', vendorAdRoutes);
-app.use('/api', customerAuthRoutes);
-app.use('/api', customerHomeRoutes);
-
-// 💬 Real-time socket handling
 io.on('connection', (socket) => {
   console.log('✅ User connected:', socket.id);
 
@@ -158,14 +143,12 @@ io.on('connection', (socket) => {
     console.log(`User ${userId} joined their room`);
   });
 
-  socket.on('send_message', (data) => {
-    const { sender_id, receiver_id, content } = data;
-
+  socket.on('send_message', ({ sender_id, receiver_id, content }) => {
     io.to(receiver_id).emit('receive_message', {
       sender_id,
       receiver_id,
       content,
-      created_at: new Date()
+      created_at: new Date(),
     });
   });
 
@@ -174,7 +157,3 @@ io.on('connection', (socket) => {
   });
 });
 
-// 🚀 Start server
-server.listen(3000, () => {
-  console.log(`✅ Server running on port 3000`);
-});
