@@ -175,11 +175,11 @@ io.on('connection', socketHandler);
 ioSecure.on('connection', socketHandler);
 
 // 🚀 Start both servers
-httpServer.listen(443, () => {
-  console.log('✅ HTTP server running on port 443');
+httpServer.listen(3000, () => {
+  console.log('✅ HTTP server running on port 3000');
 });
 
-httpsServer.listen(3000, () => {
-  console.log('🔐 HTTPS server running on port 3000');
+httpsServer.listen(443, () => {
+  console.log('🔐 HTTPS server running on port 443');
 });
 
