@@ -91,51 +91,63 @@
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
-require('dotenv').config();
+const http = require('http');
+const https = require('https');
 const { Server } = require('socket.io');
+require('dotenv').config();
 
 const app = express();
+
+// 🌐 Middleware
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
 // 🛣️ Routes
-app.use('/admin', require('./routes/admin'));
-app.use('/admin', require('./routes/product'));
-app.use('/api', require('./routes/vendor-auth'));
-app.use('/api', require('./routes/vendor-shop'));
-app.use('/api/vendor', require('./routes/vendor-product'));
-app.use('/api', require('./routes/vendor-ads'));
-app.use('/api', require('./routes/customer-auth'));
-app.use('/api', require('./routes/customer-home'));
+const userAdminDashboardRoutes = require('./routes/admin');
+const productRoutes = require('./routes/product');
+const vendorAuthRoutes = require('./routes/vendor-auth');
+const vendorShopRoutes = require('./routes/vendor-shop');
+const vendorProductRoutes = require('./routes/vendor-product');
+const vendorAdRoutes = require('./routes/vendor-ads');
+const customerAuthRoutes = require('./routes/customer-auth');
+const customerHomeRoutes = require('./routes/customer-home');
 
-// ✅ HTTP server
-const http = require('http');
+app.use('/admin', userAdminDashboardRoutes);
+app.use('/admin', productRoutes);
+app.use('/api', vendorAuthRoutes);
+app.use('/api', vendorShopRoutes);
+app.use('/api/vendor', vendorProductRoutes);
+app.use('/api', vendorAdRoutes);
+app.use('/api', customerAuthRoutes);
+app.use('/api', customerHomeRoutes);
+
+// ✅ HTTPS setup if available
+let httpsServer;
+try {
+  const sslOptions = {
+    key: fs.readFileSync('./ssl/private-key.pem'),
+    cert: fs.readFileSync('./ssl/certificate.pem'),
+  };
+
+  httpsServer = https.createServer(sslOptions, app);
+  console.log('🚀 HTTPS server created (production mode)');
+} catch (error) {
+  console.warn('⚠️  HTTPS not set up properly. Running only HTTP.');
+}
+
+// ✅ HTTP server (always)
 const httpServer = http.createServer(app);
-httpServer.listen(8080, () => {
-  console.log('🚀 HTTP server running on port 8080');
-});
 
-
-// ✅ HTTPS server
-const https = require('https');
-const options = {
-  key: fs.readFileSync('./ssl/private-key.pem'),
-  cert: fs.readFileSync('./ssl/certificate.pem'),
-};
-const httpsServer = https.createServer(options, app);
-httpsServer.listen(3000, () => {
-  console.log('🔐 HTTPS server running on port 3000');
-});
-
-// ✅ Socket.IO shared instance (on HTTPS only)
-const io = new Server(httpsServer, {
+// ✅ Socket.IO (attach to whichever server is available)
+const io = new Server(httpsServer || httpServer, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST'],
   },
 });
 
+// 💬 Real-time socket handling
 io.on('connection', (socket) => {
   console.log('✅ User connected:', socket.id);
 
@@ -144,7 +156,9 @@ io.on('connection', (socket) => {
     console.log(`User ${userId} joined their room`);
   });
 
-  socket.on('send_message', ({ sender_id, receiver_id, content }) => {
+  socket.on('send_message', (data) => {
+    const { sender_id, receiver_id, content } = data;
+
     io.to(receiver_id).emit('receive_message', {
       sender_id,
       receiver_id,
@@ -158,3 +172,13 @@ io.on('connection', (socket) => {
   });
 });
 
+// 🚀 Start servers
+httpServer.listen(80, () => {
+  console.log('✅ HTTP server running on port 80');
+});
+
+if (httpsServer) {
+  httpsServer.listen(443, () => {
+    console.log('✅ HTTPS server running on port 443');
+  });
+}
