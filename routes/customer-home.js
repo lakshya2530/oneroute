@@ -303,5 +303,49 @@ router.get('/customer/shops', (req, res) => {
     });
   });
   
+
+  // GET /categories
+router.get('/home/categories', (req, res) => {
+  db.query('SELECT * FROM categories WHERE parent_id IS NULL', (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    
+    // Parse JSON labels
+    const formatted = results.map(cat => ({
+      ...cat,
+      labels: (() => {
+        try {
+          return JSON.parse(cat.labels || '[]');
+        } catch (e) {
+          return [];
+        }
+      })()
+    }));
+
+    res.json(formatted);
+  });
+});
+
+// GET /sub-categories/:parentId
+router.get('/home/sub-categories/:parentId', (req, res) => {
+  const { parentId } = req.params;
+
+  db.query('SELECT * FROM categories WHERE parent_id = ?', [parentId], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const formatted = results.map(cat => ({
+      ...cat,
+      labels: (() => {
+        try {
+          return JSON.parse(cat.labels || '[]');
+        } catch (e) {
+          return [];
+        }
+      })()
+    }));
+
+    res.json(formatted);
+  });
+});
+
   
 module.exports = router;

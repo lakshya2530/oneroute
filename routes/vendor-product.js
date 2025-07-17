@@ -22,7 +22,7 @@ const upload = multer({ storage, limits: { files: 5 } });
 
 // Create Product
 router.post('/product-create',authenticate, upload.array('images', 5), (req, res) => {
-  const { name, description, actual_price,selling_price,quantity, category, specifications, status = 'active' } = req.body;
+  const { name, description, actual_price,selling_price,quantity,type, category,sub_category, specifications, status = 'active' } = req.body;
   const images = req.files.map(file => file.filename);
   let parsedSpecs = [];
   const vendor_id = req.user.id;
@@ -41,7 +41,9 @@ router.post('/product-create',authenticate, upload.array('images', 5), (req, res
     description,
     actual_price,
     selling_price,
+    type,
     category,
+    sub_category,
     quantity,
     images: JSON.stringify(images),
     specifications: JSON.stringify(parsedSpecs), // save as JSON string
@@ -80,7 +82,9 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
       product.description,
       product.actual_price,
       product.selling_price,
+      product.type,
       product.category,
+      product.sub_category,
       product.quantity,
       JSON.stringify(productImages), // images
       product.status || 'active',
@@ -90,7 +94,7 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
 
   const sql = `
     INSERT INTO products 
-    (name, description, actual_price, selling_price, category,quantity, images, status, specifications) 
+    (name, description, actual_price, selling_price,type, category,sub_category,quantity, images, status, specifications) 
     VALUES ?
   `;
 
@@ -155,9 +159,9 @@ router.get('/product-list', authenticate, (req, res) => {
   router.put('/product-update/:id', authenticate, upload.array('images', 5), (req, res) => {
     const { id } = req.params;
     const vendor_id = req.user.id;
-    const { name, description, actual_price, selling_price, quantity, category, specifications, status } = req.body;
+    const { name, description, actual_price, selling_price, quantity,type, category,sub_category, specifications, status } = req.body;
   
-    const updatedData = { name, description, actual_price, selling_price, quantity, category, status };
+    const updatedData = { name, description, actual_price, selling_price, quantity, category,sub_category, status };
   
     if (req.files?.length) {
       updatedData.images = JSON.stringify(req.files.map(file => file.filename));

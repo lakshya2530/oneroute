@@ -21,7 +21,7 @@ const upload = multer({ storage, limits: { files: 5 } });
 
 // Create Product
 router.post('/product-create', upload.array('images', 5), (req, res) => {
-  const { name, description, actual_price,selling_price,quantity, category, specifications, status = 'active' } = req.body;
+  const { name, description, actual_price,selling_price,quantity,type, category,sub_category, specifications, status = 'active' } = req.body;
   const images = req.files.map(file => file.filename);
   let parsedSpecs = [];
 
@@ -38,7 +38,9 @@ router.post('/product-create', upload.array('images', 5), (req, res) => {
     description,
     actual_price,
     selling_price,
+    type,
     category,
+    sub_category,
     quantity,
     images: JSON.stringify(images),
     specifications: JSON.stringify(parsedSpecs), // save as JSON string
@@ -77,7 +79,9 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
       product.description,
       product.actual_price,
       product.selling_price,
+      product.type,
       product.category,
+      product.sub_category,
       product.quantity,
       JSON.stringify(productImages), // images
       product.status || 'active',
@@ -87,7 +91,7 @@ router.post('/bulk-product-create', upload.array('images'), (req, res) => {
 
   const sql = `
     INSERT INTO products 
-    (name, description, actual_price, selling_price, category,quantity, images, status, specifications) 
+    (name, description, actual_price, selling_price, category,sub_category,quantity, images, status, specifications) 
     VALUES ?
   `;
 
@@ -201,8 +205,8 @@ router.get('/product-list', (req, res) => {
   
   router.put('/product-update/:id', upload.array('images', 5), (req, res) => {
     const { id } = req.params;
-    const { name, description, actual_price, selling_price,quantity, category,specifications, status } = req.body;
-    let updatedData = { name, description, actual_price, selling_price,quantity, category, status };
+    const { name, description, actual_price, selling_price,quantity,type, category,sub_category,specifications, status } = req.body;
+    let updatedData = { name, description, actual_price, selling_price,quantity,type, category,sub_category, status };
   
     if (req.files && req.files.length > 0) {
       const images = req.files.map(file => file.filename);
