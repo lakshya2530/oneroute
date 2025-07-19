@@ -92,9 +92,8 @@ router.get('/customer/shops', (req, res) => {
     });
   });
 
-  
   router.get('/customer/products', (req, res) => {
-    const { category } = req.query;
+    const { category, sub_category } = req.query;
     const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
   
     let sql = 'SELECT * FROM products WHERE status = "active"';
@@ -103,6 +102,11 @@ router.get('/customer/shops', (req, res) => {
     if (category) {
       sql += ' AND category = ?';
       values.push(category);
+    }
+  
+    if (sub_category) {
+      sql += ' AND sub_category = ?';
+      values.push(sub_category);
     }
   
     sql += ' ORDER BY id DESC';
@@ -125,6 +129,7 @@ router.get('/customer/shops', (req, res) => {
       res.json(formatted);
     });
   });
+  
 
   
   router.post('/cart/add', authenticate, (req, res) => {
