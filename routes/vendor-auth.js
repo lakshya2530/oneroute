@@ -80,7 +80,7 @@ router.post('/vendor-login', (req, res) => {
 
       const has_shop = shopResult[0].shop_count > 0;
 
-      const shop = hasShop ? shopResult[0] : null;
+      const shop = has_shop ? shopResult[0] : null;
 
       // Optional: exclude password from response
       delete user.password;
