@@ -149,6 +149,7 @@ router.post('/vendor-login', (req, res) => {
         
         res.json({
           user,
+          has_shop,
           shop:shop_data,
         });
       });
