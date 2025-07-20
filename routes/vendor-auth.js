@@ -73,14 +73,15 @@ router.post('/vendor-login', (req, res) => {
         expiresIn: '7d',
       });
 
+
           // ✅ Check if the vendor has a shop
-    const shopCheckSql = 'SELECT COUNT(*) AS shop_count FROM vendor_shops WHERE vendor_id = ?';
+    const shopCheckSql = 'SELECT * FROM vendor_shops WHERE vendor_id = ?';
     db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
       if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
 
-      const has_shop = shopResult[0].shop_count > 0;
-
-      const shop = has_shop ? shopResult[0] : null;
+      const has_shop = shopResult.length > 0;
+      const shop_data = has_shop ? shopResult[0] : null;
+      
 
       // Optional: exclude password from response
       delete user.password;
@@ -91,7 +92,7 @@ router.post('/vendor-login', (req, res) => {
         user: {
           ...user,
           has_shop,
-          shop
+          shop:shop_data
         },
       });
     });
