@@ -80,7 +80,8 @@ router.post('/vendor-login', (req, res) => {
 
       const has_shop = shopResult[0].shop_count > 0;
 
-  
+      const shop = hasShop ? shopResult[0] : null;
+
       // Optional: exclude password from response
       delete user.password;
 
@@ -89,7 +90,8 @@ router.post('/vendor-login', (req, res) => {
         token,
         user: {
           ...user,
-          has_shop
+          has_shop,
+          shop
         },
       });
     });
@@ -130,19 +132,46 @@ router.post('/vendor-login', (req, res) => {
   router.get('/get-profile/:id', (req, res) => {
     const { id } = req.params;
   
-    db.query('SELECT * FROM users WHERE id = ?', [id], (err, results) => {
-      if (err) return res.status(500).json({ error: err.message });
-      if (results.length === 0) return res.status(404).json({ message: 'User not found' });
+    const userQuery = 'SELECT * FROM users WHERE id = ?';
   
-      const user = results[0];
+    db.query(userQuery, [id], (err, userResults) => {
+      if (err) return res.status(500).json({ error: 'User fetch error' });
+      if (userResults.length === 0) return res.status(404).json({ message: 'User not found' });
   
-    //   user.image = user.image
-    //     ? `${BASE_URL}/uploads/profiles/${user.image}`
-    //     : null;
+      const user = userResults[0];
+      delete user.password;
   
-      res.json(user);
+      const shopQuery = 'SELECT * FROM vendor_shops WHERE vendor_id = ?';
+      db.query(shopQuery, [id], (shopErr, shopResults) => {
+        if (shopErr) return res.status(500).json({ error: 'Shop fetch error' });
+        const has_shop = shopResults.length > 0;
+        const shop_data = has_shop ? shopResults[0] : null;
+        
+        res.json({
+          user,
+          shop:shop_data,
+        });
+      });
     });
   });
+  
+
+  // router.get('/get-profile/:id', (req, res) => {
+  //   const { id } = req.params;
+  
+  //   db.query('SELECT * FROM users WHERE id = ?', [id], (err, results) => {
+  //     if (err) return res.status(500).json({ error: err.message });
+  //     if (results.length === 0) return res.status(404).json({ message: 'User not found' });
+  
+  //     const user = results[0];
+  
+  //   //   user.image = user.image
+  //   //     ? `${BASE_URL}/uploads/profiles/${user.image}`
+  //   //     : null;
+  
+  //     res.json(user);
+  //   });
+  // });
 
   router.post('/vendor-bank-add', verifyToken, (req, res) => {
   const user_id = req.user.id; // or req.user.vendor_id
