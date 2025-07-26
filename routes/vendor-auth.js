@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const verifyToken = require('../middleware/auth');
 
+const saltRounds = 10;
 
 
 // Multer configuration directly in the same file
@@ -27,24 +28,37 @@ const storage = multer.diskStorage({
 
 // STEP 1: Start signup (store temp values and OTP)
 router.post('/register-step-1', async (req, res) => {
-  const { phone, email } = req.body;
+  const { phone, email, name, password, confirmPassword } = req.body;
+
+  if (!phone || !email || !name || !password || !confirmPassword) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  if (password !== confirmPassword) {
+    return res.status(400).json({ error: 'Passwords do not match' });
+  }
+
   const phoneOtp = generateOTP();
   const emailOtp = generateOTP();
+  const hashedPassword = await bcrypt.hash(password, saltRounds);
 
   try {
-    const [user] = await db.query('SELECT id FROM users WHERE phone_temp = ? OR email_temp = ?', [phone, email]);
+    const [existing] = await db.query('SELECT id FROM users WHERE phone_temp = ? OR email_temp = ?', [phone, email]);
 
-    if (user.length > 0) {
+    if (existing.length > 0) {
       await db.query(
-        `UPDATE users SET phone_otp = ?, email_otp = ?, phone_temp = ?, email_temp = ?, registration_step = 1 WHERE id = ?`,
-        [phoneOtp, emailOtp, phone, email, user[0].id]
+        `UPDATE users 
+         SET name = ?, password = ?, phone_otp = ?, email_otp = ?, phone_temp = ?, email_temp = ?, registration_step = 1 
+         WHERE id = ?`,
+        [name, hashedPassword, phoneOtp, emailOtp, phone, email, existing[0].id]
       );
-      return res.json({ message: 'OTP re-sent', userId: user[0].id });
+      return res.json({ message: 'OTP re-sent', userId: existing[0].id });
     }
 
     const [result] = await db.query(
-      `INSERT INTO users (phone_temp, email_temp, phone_otp, email_otp, registration_step) VALUES (?, ?, ?, ?, 1)`,
-      [phone, email, phoneOtp, emailOtp]
+      `INSERT INTO users (name, password, phone_temp, email_temp, phone_otp, email_otp, registration_step) 
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [name, hashedPassword, phone, email, phoneOtp, emailOtp]
     );
 
     return res.json({ message: 'OTP sent', userId: result.insertId });
