@@ -48,7 +48,7 @@ router.post('/register-step-1', async (req, res) => {
     if (existing.length > 0) {
       await db.query(
         `UPDATE users 
-         SET name = ?, password = ?, phone_otp = ?, email_otp = ?, phone_temp = ?, email_temp = ?, registration_step = 1 
+         SET full_name = ?, password = ?, phone_otp = ?, email_otp = ?, phone_temp = ?, email_temp = ?, registration_step = 1 
          WHERE id = ?`,
         [name, hashedPassword, phoneOtp, emailOtp, phone, email, existing[0].id]
       );
@@ -56,7 +56,7 @@ router.post('/register-step-1', async (req, res) => {
     }
 
     const [result] = await db.query(
-      `INSERT INTO users (name, password, phone_temp, email_temp, phone_otp, email_otp, registration_step) 
+      `INSERT INTO users (full_name, password, phone_temp, email_temp, phone_otp, email_otp, registration_step) 
        VALUES (?, ?, ?, ?, ?, ?, 1)`,
       [name, hashedPassword, phone, email, phoneOtp, emailOtp]
     );
