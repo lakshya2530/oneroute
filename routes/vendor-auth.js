@@ -20,84 +20,190 @@ const storage = multer.diskStorage({
     }
   });
   const upload = multer({ storage: storage });
-// ✅ Signup
-router.post('/vendor-signup', async (req, res) => {
-  const { email, password, confirm_password } = req.body;
 
-  if (!email || !password || !confirm_password) {
-    return res.status(400).json({ error: 'All fields are required' });
+  function generateOTP() {
+  return 1234;//Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+// STEP 1: Start signup (store temp values and OTP)
+router.post('/register-step-1', async (req, res) => {
+  const { phone, email } = req.body;
+  const phoneOtp = generateOTP();
+  const emailOtp = generateOTP();
+
+  try {
+    const [user] = await db.query('SELECT id FROM users WHERE phone_temp = ? OR email_temp = ?', [phone, email]);
+
+    if (user.length > 0) {
+      await db.query(
+        `UPDATE users SET phone_otp = ?, email_otp = ?, phone_temp = ?, email_temp = ?, registration_step = 1 WHERE id = ?`,
+        [phoneOtp, emailOtp, phone, email, user[0].id]
+      );
+      return res.json({ message: 'OTP re-sent', userId: user[0].id });
+    }
+
+    const [result] = await db.query(
+      `INSERT INTO users (phone_temp, email_temp, phone_otp, email_otp, registration_step) VALUES (?, ?, ?, ?, 1)`,
+      [phone, email, phoneOtp, emailOtp]
+    );
+
+    return res.json({ message: 'OTP sent', userId: result.insertId });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error', err });
   }
-
-  if (password !== confirm_password) {
-    return res.status(400).json({ error: 'Passwords do not match' });
-  }
-
-  // check if user already exists
-  db.query('SELECT * FROM users WHERE email = ? AND user_type = "vendor"', [email], async (err, results) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (results.length > 0) return res.status(409).json({ error: 'Email already registered' });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = {
-      email,
-      password: hashedPassword,
-      user_type: 'vendor',
-      status: 'active',
-      registration_date: new Date()
-    };
-
-    db.query('INSERT INTO users SET ?', user, (err, result) => {
-      if (err) return res.status(500).json({ error: err.message });
-      res.status(201).json({ message: 'Vendor registered successfully', id: result.insertId });
-    });
-  });
 });
 
-// ✅ Login
-router.post('/vendor-login', (req, res) => {
-    const { email, password } = req.body;
+// STEP 2: Verify OTPs
+router.post('/verify-otp', async (req, res) => {
+  const { userId, phoneOtp, emailOtp } = req.body;
+
+  try {
+    const [users] = await db.query(`SELECT * FROM users WHERE id = ?`, [userId]);
+    const user = users[0];
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.phone_otp === phoneOtp && user.email_otp === emailOtp) {
+      await db.query(
+        `UPDATE users SET phone_verified = 1, email_verified = 1, phone = phone_temp, email = email_temp, registration_step = 2 WHERE id = ?`,
+        [userId]
+      );
+      return res.json({ message: 'OTP verified. Proceed to step 2' });
+    }
+
+    return res.status(400).json({ error: 'Invalid OTPs' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error', err });
+  }
+});
+
+// STEP 3: Profile Info
+router.post('/register-step-2', async (req, res) => {
+  const { userId, name, gender, age } = req.body;
+
+  try {
+    await db.query(
+      `UPDATE users SET name = ?, gender = ?, age = ?, registration_step = 3 WHERE id = ?`,
+      [name, gender, age, userId]
+    );
+    return res.json({ message: 'Profile saved. Proceed to step 3' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error', err });
+  }
+});
+
+// STEP 4: Shop Info
+router.post('/register-step-3', async (req, res) => {
+  const { userId, shop_name, shop_type } = req.body;
+
+  try {
+    await db.query(
+      `UPDATE users SET shop_name = ?, shop_type = ?, registration_step = 4 WHERE id = ?`,
+      [shop_name, shop_type, userId]
+    );
+    return res.json({ message: 'Signup completed.' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error', err });
+  }
+});
+
+// LOGIN
+router.post('/vendor-login', async (req, res) => {
+  const { phone } = req.body;
+
+  try {
+    const [users] = await db.query(`SELECT * FROM users WHERE phone = ?`, [phone]);
+    const user = users[0];
+
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    if (user.registration_step < 4) {
+      return res.json({ message: 'Incomplete registration', registration_step: user.registration_step, userId: user.id });
+    }
+
+    return res.json({ message: 'Login successful', user });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error', err });
+  }
+});
+// ✅ Signup
+// router.post('/vendor-signup', async (req, res) => {
+//   const { email, password, confirm_password } = req.body;
+
+//   if (!email || !password || !confirm_password) {
+//     return res.status(400).json({ error: 'All fields are required' });
+//   }
+
+//   if (password !== confirm_password) {
+//     return res.status(400).json({ error: 'Passwords do not match' });
+//   }
+
+//   // check if user already exists
+//   db.query('SELECT * FROM users WHERE email = ? AND user_type = "vendor"', [email], async (err, results) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     if (results.length > 0) return res.status(409).json({ error: 'Email already registered' });
+
+//     const hashedPassword = await bcrypt.hash(password, 10);
+
+//     const user = {
+//       email,
+//       password: hashedPassword,
+//       user_type: 'vendor',
+//       status: 'active',
+//       registration_date: new Date()
+//     };
+
+//     db.query('INSERT INTO users SET ?', user, (err, result) => {
+//       if (err) return res.status(500).json({ error: err.message });
+//       res.status(201).json({ message: 'Vendor registered successfully', id: result.insertId });
+//     });
+//   });
+// });
+
+// // ✅ Login
+// router.post('/vendor-login', (req, res) => {
+//     const { email, password } = req.body;
   
-    const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "vendor"';
-    db.query(sql, [email], async (err, results) => {
-      if (err) return res.status(500).json({ error: 'Database error' });
-      if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+//     const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "vendor"';
+//     db.query(sql, [email], async (err, results) => {
+//       if (err) return res.status(500).json({ error: 'Database error' });
+//       if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
   
-      const user = results[0];
+//       const user = results[0];
   
-      const match = await bcrypt.compare(password, user.password);
-      if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+//       const match = await bcrypt.compare(password, user.password);
+//       if (!match) return res.status(401).json({ error: 'Invalid credentials' });
   
-      // ✅ Generate JWT token
-      const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
-        expiresIn: '7d',
-      });
+//       // ✅ Generate JWT token
+//       const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
+//         expiresIn: '7d',
+//       });
 
 
-          // ✅ Check if the vendor has a shop
-    const shopCheckSql = 'SELECT * FROM vendor_shops WHERE vendor_id = ?';
-    db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
-      if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
+//           // ✅ Check if the vendor has a shop
+//     const shopCheckSql = 'SELECT * FROM vendor_shops WHERE vendor_id = ?';
+//     db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
+//       if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
 
-      const has_shop = shopResult.length > 0;
-      const shop_data = has_shop ? shopResult[0] : null;
+//       const has_shop = shopResult.length > 0;
+//       const shop_data = has_shop ? shopResult[0] : null;
       
 
-      // Optional: exclude password from response
-      delete user.password;
+//       // Optional: exclude password from response
+//       delete user.password;
 
-      res.json({
-        message: 'Login successful',
-        token,
-        user: {
-          ...user,
-          has_shop,
-          shop:shop_data
-        },
-      });
-    });
-  });
-});
+//       res.json({
+//         message: 'Login successful',
+//         token,
+//         user: {
+//           ...user,
+//           has_shop,
+//           shop:shop_data
+//         },
+//       });
+//     });
+//   });
+// });
   
 //       res.json({
 //         message: 'Login successful',
