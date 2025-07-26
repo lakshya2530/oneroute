@@ -97,7 +97,7 @@ router.post('/register-step-2', async (req, res) => {
 
   try {
     await db.query(
-      `UPDATE users SET name = ?, gender = ?, age = ?, registration_step = 3 WHERE id = ?`,
+      `UPDATE users SET full_name = ?, gender = ?, age = ?, registration_step = 3 WHERE id = ?`,
       [name, gender, age, userId]
     );
     return res.json({ message: 'Profile saved. Proceed to step 3' });
