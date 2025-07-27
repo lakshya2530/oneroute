@@ -22,25 +22,23 @@ const storage = multer.diskStorage({
   });
   const upload = multer({ storage: storage });
 
-  function generateOtp() {
+  function generateOTP() {
   return 1234;//Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-router.post('/send-email-otp', async (req, res) => {
+router.post("/send-email-otp", async (req, res) => {
   const { email } = req.body;
-  const otp = generateOtp(); // e.g., 6 digit
+  const otp = generateOTP();
 
-  // Save or update in DB
-  await db('otp_verifications')
-    .insert({ email, email_otp: otp })
-    .onConflict('email') // if exists
-    .merge({ email_otp: otp, email_verified: false });
+  // Store in DB
+  await db.query("INSERT INTO otp_verifications (email, otp_code, type) VALUES (?, ?, 'email')", [email, otp]);
 
-  // Send email (use nodemailer)
-  //sendEmailOtp(email, otp);
+  // TODO: send email here
+  console.log(`Email OTP sent to ${email}: ${otp}`);
 
-  return res.json({ status: true, message: 'Email OTP sent' });
+  res.json({ success: true, message: "Email OTP sent" });
 });
+
 
 // [2] Verify Email OTP
 router.post('/verify-email-otp', (req, res) => {
