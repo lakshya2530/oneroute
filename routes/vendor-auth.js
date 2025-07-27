@@ -26,23 +26,20 @@ const storage = multer.diskStorage({
   return 1234;//Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-router.post('/send-email-otp', (req, res) => {
+router.post('/api/send-email-otp', async (req, res) => {
   const { email } = req.body;
-  const otp = generateOtp();
+  const otp = generateOtp(); // e.g., 6 digit
 
-  const sql = `
-    INSERT INTO otp_verifications (email, email_otp, status)
-    VALUES (?, ?, 'email_sent')
-    ON DUPLICATE KEY UPDATE email_otp = ?, status = 'email_sent'
-  `;
+  // Save or update in DB
+  await db('otp_verifications')
+    .insert({ email, email_otp: otp })
+    .onConflict('email') // if exists
+    .merge({ email_otp: otp, email_verified: false });
 
-  db.query(sql, [email, otp, otp], (err) => {
-    if (err) return res.status(500).json({ error: 'Database error' });
+  // Send email (use nodemailer)
+  //sendEmailOtp(email, otp);
 
-    console.log(`Email OTP sent to ${email}: ${otp}`);
-    // You can use nodemailer/sendgrid here
-    res.json({ message: 'Email OTP sent' });
-  });
+  return res.json({ status: true, message: 'Email OTP sent' });
 });
 
 // [2] Verify Email OTP
