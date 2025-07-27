@@ -57,38 +57,32 @@ router.post("/verify-email-otp", async (req, res) => {
 
 
 // [3] Send Phone OTP
-router.post('/send-phone-otp', (req, res) => {
-  const { email, phone } = req.body;
-  const otp = generateOtp();
+router.post("/send-phone-otp", async (req, res) => {
+  const { phone } = req.body;
+  const otp = generateOTP();
 
-  const sql = `UPDATE otp_verifications SET phone = ?, phone_otp = ?, status = 'phone_sent' WHERE email = ?`;
-  db.query(sql, [phone, otp, email], (err) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
+  await db.query("INSERT INTO otp_verifications (phone, otp_code, type) VALUES (?, ?, 'phone')", [phone, otp]);
 
-   // sendSmsOtp(phone, otp); // Your SMS function
-   return  res.json({ message: 'Phone OTP sent' });
-  });
+  // TODO: Send SMS here
+  console.log(`Phone OTP sent to ${phone}: ${otp}`);
+
+  res.json({ success: true, message: "Phone OTP sent" });
 });
+
 
 // [4] Verify Phone OTP and Set Password
-router.post('/verify-phone-otp-and-register', async (req, res) => {
-  const { email, phone, otp, password } = req.body;
+router.post("/verify-phone-otp", async (req, res) => {
+  const { phone, otp } = req.body;
+  const [rows] = await db.query("SELECT * FROM otp_verifications WHERE phone = ? AND type = 'phone' ORDER BY id DESC LIMIT 1", [phone]);
 
-  const sql = `SELECT * FROM otp_verifications WHERE email = ? AND phone = ? AND phone_otp = ? AND status = 'phone_sent'`;
-  db.query(sql, [email, phone, otp], async (err, results) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
+  if (!rows.length || rows[0].otp_code !== otp) {
+    return res.status(400).json({ success: false, message: "Invalid OTP" });
+  }
 
-    if (results.length === 0) return res.status(400).json({ error: 'Invalid OTP or phone' });
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const insertSql = `INSERT INTO users (email, phone, password, user_type, status)
-                       VALUES (?, ?, ?, 'vendor', 'step_1_complete')`;
-    db.query(insertSql, [email, phone, hashedPassword], () => {
-      return res.json({ message: 'Phone verified and password set. Proceed to profile.' });
-    });
-  });
+  await db.query("UPDATE otp_verifications SET is_verified = 1 WHERE id = ?", [rows[0].id]);
+  res.json({ success: true, message: "Phone verified" });
 });
+
 
 router.post('/create-vendor-profile', (req, res) => {
   const { user_id, name, age, gender } = req.body;
