@@ -107,11 +107,11 @@ router.post("/register-user", async (req, res) => {
 
 
 router.post("/create-profile", async (req, res) => {
-  const { user_id, name, age, gender } = req.body;
+  const { user_id, full_name, age, gender } = req.body;
 
   await db.query(
-    "UPDATE users SET name = ?, age = ?, gender = ?, registration_step = 2 WHERE id = ?",
-    [name, age, gender, user_id]
+    "UPDATE users SET full_name = ?, age = ?, gender = ?, registration_step = 2 WHERE id = ?",
+    [full_name, age, gender, user_id]
   );
 
   res.json({ message: "Profile updated", registration_step: 2 });
