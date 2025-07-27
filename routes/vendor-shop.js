@@ -51,14 +51,14 @@ router.post(
 
 router.post(
   '/vendor/shop-document-create',
-  authenticate,
+ // authenticate,
   upload.fields([
     { name: 'shop_document', maxCount: 1 },
     { name: 'additional_document', maxCount: 1 }
   ]),
   (req, res) => {
-    const vendor_id = req.user.id;
-    const { gst_number, pan_number } = req.body;
+    //const vendor_id = req.user.id;
+    const { gst_number, pan_number,vendor_id } = req.body;
     const files = req.files;
 
     const shop_document = files?.shop_document?.[0]?.filename || '';
