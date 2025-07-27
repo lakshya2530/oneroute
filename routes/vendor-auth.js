@@ -137,7 +137,8 @@ router.post("/vendor-login", async (req, res) => {
 
     const { identifier, password } = req.body;
     const [results] = await db.promise().query(
-      `SELECT * FROM users WHERE (email = ? OR phone = ?) AND user_type = 'vendor'`,
+      // AND user_type = 'vendor'
+      `SELECT * FROM users WHERE (email = ? OR phone = ?)`,
       [identifier, identifier]
     );
 
