@@ -131,42 +131,6 @@ router.post("/create-shop", async (req, res) => {
 });
 
 // [8] Vendor Login
-router.post("/vendor-login", (req, res) => {
-  const { identifier, password } = req.body;
-
-  const sql = `SELECT * FROM users WHERE (email = ? OR phone = ?) AND user_type = 'vendor'`;
-  db.query(sql, [identifier, identifier], async (err, results) => {
-    if (err) return res.status(500).json({ error: "DB error" });
-    if (results.length === 0)
-      return res.status(401).json({ error: "Invalid credentials" });
-
-    const user = results[0];
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ error: "Invalid credentials" });
-
-    const token = jwt.sign(
-      { id: user.id, email: user.email, user_type: user.user_type },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    db.query("SELECT * FROM vendor_shops WHERE vendor_id = ?", [user.id], (err2, shopResult) => {
-      if (err2) return res.status(500).json({ error: "Shop check error" });
-
-      delete user.password;
-
-      res.json({
-        message: "Login successful",
-        token,
-        user: {
-          ...user,
-          has_shop: shopResult.length > 0,
-          shop: shopResult[0] || null,
-        },
-      });
-    });
-  });
-});
 
 
 // STEP 1: Start signup (store temp values and OTP)
@@ -318,49 +282,49 @@ router.post("/vendor-login", (req, res) => {
 // });
 
 // // ✅ Login
-// router.post('/vendor-login', (req, res) => {
-//     const { email, password } = req.body;
+router.post('/vendor-login', (req, res) => {
+    const { email, password } = req.body;
   
-//     const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "vendor"';
-//     db.query(sql, [email], async (err, results) => {
-//       if (err) return res.status(500).json({ error: 'Database error' });
-//       if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+    const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "vendor"';
+    db.query(sql, [email], async (err, results) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
   
-//       const user = results[0];
+      const user = results[0];
   
-//       const match = await bcrypt.compare(password, user.password);
-//       if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+      const match = await bcrypt.compare(password, user.password);
+      if (!match) return res.status(401).json({ error: 'Invalid credentials' });
   
-//       // ✅ Generate JWT token
-//       const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
-//         expiresIn: '7d',
-//       });
+      // ✅ Generate JWT token
+      const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
+        expiresIn: '7d',
+      });
 
 
-//           // ✅ Check if the vendor has a shop
-//     const shopCheckSql = 'SELECT * FROM vendor_shops WHERE vendor_id = ?';
-//     db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
-//       if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
+          // ✅ Check if the vendor has a shop
+    const shopCheckSql = 'SELECT * FROM vendor_shops WHERE vendor_id = ?';
+    db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
+      if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
 
-//       const has_shop = shopResult.length > 0;
-//       const shop_data = has_shop ? shopResult[0] : null;
+      const has_shop = shopResult.length > 0;
+      const shop_data = has_shop ? shopResult[0] : null;
       
 
-//       // Optional: exclude password from response
-//       delete user.password;
+      // Optional: exclude password from response
+      delete user.password;
 
-//       res.json({
-//         message: 'Login successful',
-//         token,
-//         user: {
-//           ...user,
-//           has_shop,
-//           shop:shop_data
-//         },
-//       });
-//     });
-//   });
-// });
+      res.json({
+        message: 'Login successful',
+        token,
+        user: {
+          ...user,
+          has_shop,
+          shop:shop_data
+        },
+      });
+    });
+  });
+});
   
 //       res.json({
 //         message: 'Login successful',
