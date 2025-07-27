@@ -26,120 +26,237 @@ const storage = multer.diskStorage({
   return 1234;//Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+router.post('/send-email-otp', (req, res) => {
+  const { email } = req.body;
+  const otp = generateOtp(); // Custom function
+
+  // Save to temp table or cache (like Redis), here assuming DB
+  const sql = `INSERT INTO otp_verifications (email, email_otp, status) VALUES (?, ?, 'email_sent')
+               ON DUPLICATE KEY UPDATE email_otp = ?, status = 'email_sent'`;
+
+  db.query(sql, [email, otp, otp], (err) => {
+    if (err) return res.status(500).json({ error: 'DB error' });
+
+    // Send OTP via email here
+    sendEmailOtp(email, otp); // Your function
+    res.json({ message: 'Email OTP sent' });
+  });
+});
+
+// [2] Verify Email OTP
+router.post('/verify-email-otp', (req, res) => {
+  const { email, otp } = req.body;
+
+  const sql = `SELECT * FROM otp_verifications WHERE email = ? AND email_otp = ?`;
+  db.query(sql, [email, otp], (err, results) => {
+    if (err) return res.status(500).json({ error: 'DB error' });
+
+    if (results.length === 0) return res.status(400).json({ error: 'Invalid OTP' });
+
+    const updateSql = `UPDATE otp_verifications SET status = 'email_verified' WHERE email = ?`;
+    db.query(updateSql, [email], () => {
+      res.json({ message: 'Email verified, send phone OTP' });
+    });
+  });
+});
+
+
+// [3] Send Phone OTP
+router.post('/send-phone-otp', (req, res) => {
+  const { email, phone } = req.body;
+  const otp = generateOtp();
+
+  const sql = `UPDATE otp_verifications SET phone = ?, phone_otp = ?, status = 'phone_sent' WHERE email = ?`;
+  db.query(sql, [phone, otp, email], (err) => {
+    if (err) return res.status(500).json({ error: 'DB error' });
+
+    sendSmsOtp(phone, otp); // Your SMS function
+    res.json({ message: 'Phone OTP sent' });
+  });
+});
+
+// [4] Verify Phone OTP and Set Password
+router.post('/verify-phone-otp-and-register', async (req, res) => {
+  const { email, phone, otp, password } = req.body;
+
+  const sql = `SELECT * FROM otp_verifications WHERE email = ? AND phone = ? AND phone_otp = ? AND status = 'phone_sent'`;
+  db.query(sql, [email, phone, otp], async (err, results) => {
+    if (err) return res.status(500).json({ error: 'DB error' });
+
+    if (results.length === 0) return res.status(400).json({ error: 'Invalid OTP or phone' });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const insertSql = `INSERT INTO users (email, phone, password, user_type, status)
+                       VALUES (?, ?, ?, 'vendor', 'step_1_complete')`;
+    db.query(insertSql, [email, phone, hashedPassword], () => {
+      res.json({ message: 'Phone verified and password set. Proceed to profile.' });
+    });
+  });
+});
+
+router.post('/create-vendor-profile', (req, res) => {
+  const { user_id, name, age, gender } = req.body;
+
+  const sql = `UPDATE users SET name = ?, age = ?, gender = ?, status = 'step_2_complete' WHERE id = ?`;
+  db.query(sql, [name, age, gender, user_id], (err) => {
+    if (err) return res.status(500).json({ error: 'Profile creation failed' });
+
+    res.json({ message: 'Profile created. Proceed to shop info.' });
+  });
+});
+
+
+router.post('/vendor-login', (req, res) => {
+  const { identifier, password } = req.body;
+  const sql = `SELECT * FROM users WHERE (email = ? OR phone = ?) AND user_type = 'vendor'`;
+
+  db.query(sql, [identifier, identifier], async (err, results) => {
+    if (err) return res.status(500).json({ error: 'DB error' });
+    if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const user = results[0];
+    const match = await bcrypt.compare(password, user.password);
+    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+
+    const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
+      expiresIn: '7d',
+    });
+
+    // Check for shop
+    const shopSql = `SELECT * FROM vendor_shops WHERE vendor_id = ?`;
+    db.query(shopSql, [user.id], (err2, shopResult) => {
+      if (err2) return res.status(500).json({ error: 'Shop check error' });
+
+      delete user.password;
+      res.json({
+        message: 'Login successful',
+        token,
+        user: {
+          ...user,
+          has_shop: shopResult.length > 0,
+          shop: shopResult[0] || null,
+        },
+      });
+    });
+  });
+});
+
+
 // STEP 1: Start signup (store temp values and OTP)
-router.post('/register-step-1', async (req, res) => {
-  const { phone, email, name, password, confirmPassword } = req.body;
+// router.post('/register-step-1', async (req, res) => {
+//   const { phone, email, name, password, confirmPassword } = req.body;
 
-  if (!phone || !email || !name || !password || !confirmPassword) {
-    return res.status(400).json({ error: 'All fields are required' });
-  }
+//   if (!phone || !email || !name || !password || !confirmPassword) {
+//     return res.status(400).json({ error: 'All fields are required' });
+//   }
 
-  if (password !== confirmPassword) {
-    return res.status(400).json({ error: 'Passwords do not match' });
-  }
+//   if (password !== confirmPassword) {
+//     return res.status(400).json({ error: 'Passwords do not match' });
+//   }
 
-  const phoneOtp = generateOTP();
-  const emailOtp = generateOTP();
-  const hashedPassword = await bcrypt.hash(password, saltRounds);
+//   const phoneOtp = generateOTP();
+//   const emailOtp = generateOTP();
+//   const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-  try {
-    const [existing] = await db.query('SELECT id FROM users WHERE phone_temp = ? OR email_temp = ?', [phone, email]);
+//   try {
+//     const [existing] = await db.query('SELECT id FROM users WHERE phone_temp = ? OR email_temp = ?', [phone, email]);
 
-    if (existing.length > 0) {
-      await db.query(
-        `UPDATE users 
-         SET full_name = ?, password = ?, phone_otp = ?, email_otp = ?, phone_temp = ?, email_temp = ?, registration_step = 1 
-         WHERE id = ?`,
-        [name, hashedPassword, phoneOtp, emailOtp, phone, email, existing[0].id]
-      );
-      return res.json({ message: 'OTP re-sent', userId: existing[0].id });
-    }
+//     if (existing.length > 0) {
+//       await db.query(
+//         `UPDATE users 
+//          SET full_name = ?, password = ?, phone_otp = ?, email_otp = ?, phone_temp = ?, email_temp = ?, registration_step = 1 
+//          WHERE id = ?`,
+//         [name, hashedPassword, phoneOtp, emailOtp, phone, email, existing[0].id]
+//       );
+//       return res.json({ message: 'OTP re-sent', userId: existing[0].id });
+//     }
 
-    const [result] = await db.query(
-      `INSERT INTO users (full_name, password, phone_temp, email_temp, phone_otp, email_otp, registration_step) 
-       VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      [name, hashedPassword, phone, email, phoneOtp, emailOtp]
-    );
+//     const [result] = await db.query(
+//       `INSERT INTO users (full_name, password, phone_temp, email_temp, phone_otp, email_otp, registration_step) 
+//        VALUES (?, ?, ?, ?, ?, ?, 1)`,
+//       [name, hashedPassword, phone, email, phoneOtp, emailOtp]
+//     );
 
-    return res.json({ message: 'OTP sent', userId: result.insertId });
-  } catch (err) {
-    return res.status(500).json({ error: 'Server error', err });
-  }
-});
+//     return res.json({ message: 'OTP sent', userId: result.insertId });
+//   } catch (err) {
+//     return res.status(500).json({ error: 'Server error', err });
+//   }
+// });
 
-// STEP 2: Verify OTPs
-router.post('/verify-otp', async (req, res) => {
-  const { userId, phoneOtp, emailOtp } = req.body;
+// // STEP 2: Verify OTPs
+// router.post('/verify-otp', async (req, res) => {
+//   const { userId, phoneOtp, emailOtp } = req.body;
 
-  try {
-    const [users] = await db.query(`SELECT * FROM users WHERE id = ?`, [userId]);
-    const user = users[0];
+//   try {
+//     const [users] = await db.query(`SELECT * FROM users WHERE id = ?`, [userId]);
+//     const user = users[0];
 
-    if (!user) return res.status(404).json({ error: 'User not found' });
+//     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (user.phone_otp === phoneOtp && user.email_otp === emailOtp) {
-      await db.query(
-        `UPDATE users SET phone_verified = 1, email_verified = 1, phone = phone_temp, email = email_temp, registration_step = 2 WHERE id = ?`,
-        [userId]
-      );
-      return res.json({ message: 'OTP verified. Proceed to step 2' });
-    }
+//     if (user.phone_otp === phoneOtp && user.email_otp === emailOtp) {
+//       await db.query(
+//         `UPDATE users SET phone_verified = 1, email_verified = 1, phone = phone_temp, email = email_temp, registration_step = 2 WHERE id = ?`,
+//         [userId]
+//       );
+//       return res.json({ message: 'OTP verified. Proceed to step 2' });
+//     }
 
-    return res.status(400).json({ error: 'Invalid OTPs' });
-  } catch (err) {
-    return res.status(500).json({ error: 'Server error', err });
-  }
-});
+//     return res.status(400).json({ error: 'Invalid OTPs' });
+//   } catch (err) {
+//     return res.status(500).json({ error: 'Server error', err });
+//   }
+// });
 
-// STEP 3: Profile Info
-router.post('/register-step-2', async (req, res) => {
-  const { userId, name, gender, age } = req.body;
+// // STEP 3: Profile Info
+// router.post('/register-step-2', async (req, res) => {
+//   const { userId, name, gender, age } = req.body;
 
-  try {
-    await db.query(
-      `UPDATE users SET full_name = ?, gender = ?, age = ?, registration_step = 3 WHERE id = ?`,
-      [name, gender, age, userId]
-    );
-    return res.json({ message: 'Profile saved. Proceed to step 3' });
-  } catch (err) {
-    return res.status(500).json({ error: 'Server error', err });
-  }
-});
+//   try {
+//     await db.query(
+//       `UPDATE users SET full_name = ?, gender = ?, age = ?, registration_step = 3 WHERE id = ?`,
+//       [name, gender, age, userId]
+//     );
+//     return res.json({ message: 'Profile saved. Proceed to step 3' });
+//   } catch (err) {
+//     return res.status(500).json({ error: 'Server error', err });
+//   }
+// });
 
-// STEP 4: Shop Info
-router.post('/register-step-3', async (req, res) => {
-  const { userId, shop_name, shop_type } = req.body;
+// // STEP 4: Shop Info
+// router.post('/register-step-3', async (req, res) => {
+//   const { userId, shop_name, shop_type } = req.body;
 
-  try {
-    await db.query(
-      `UPDATE users SET shop_name = ?, shop_type = ?, registration_step = 4 WHERE id = ?`,
-      [shop_name, shop_type, userId]
-    );
-    return res.json({ message: 'Signup completed.' });
-  } catch (err) {
-    return res.status(500).json({ error: 'Server error', err });
-  }
-});
+//   try {
+//     await db.query(
+//       `UPDATE users SET shop_name = ?, shop_type = ?, registration_step = 4 WHERE id = ?`,
+//       [shop_name, shop_type, userId]
+//     );
+//     return res.json({ message: 'Signup completed.' });
+//   } catch (err) {
+//     return res.status(500).json({ error: 'Server error', err });
+//   }
+// });
 
-// LOGIN
-router.post('/vendor-login', async (req, res) => {
-  const { phone } = req.body;
+// // LOGIN
+// router.post('/vendor-login', async (req, res) => {
+//   const { phone } = req.body;
 
-  try {
-    const [users] = await db.query(`SELECT * FROM users WHERE phone = ?`, [phone]);
-    const user = users[0];
+//   try {
+//     const [users] = await db.query(`SELECT * FROM users WHERE phone = ?`, [phone]);
+//     const user = users[0];
 
-    if (!user) return res.status(404).json({ error: 'User not found' });
+//     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    if (user.registration_step < 4) {
-      return res.json({ message: 'Incomplete registration', registration_step: user.registration_step, userId: user.id });
-    }
+//     if (user.registration_step < 4) {
+//       return res.json({ message: 'Incomplete registration', registration_step: user.registration_step, userId: user.id });
+//     }
 
-    return res.json({ message: 'Login successful', user });
-  } catch (err) {
-    return res.status(500).json({ error: 'Server error', err });
-  }
-});
+//     return res.json({ message: 'Login successful', user });
+//   } catch (err) {
+//     return res.status(500).json({ error: 'Server error', err });
+//   }
+// });
 // ✅ Signup
 // router.post('/vendor-signup', async (req, res) => {
 //   const { email, password, confirm_password } = req.body;
