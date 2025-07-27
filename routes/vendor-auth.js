@@ -26,7 +26,7 @@ const storage = multer.diskStorage({
   return 1234;//Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-router.post('/api/send-email-otp', async (req, res) => {
+router.post('/send-email-otp', async (req, res) => {
   const { email } = req.body;
   const otp = generateOtp(); // e.g., 6 digit
 
