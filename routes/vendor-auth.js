@@ -41,21 +41,19 @@ router.post("/send-email-otp", async (req, res) => {
 
 
 // [2] Verify Email OTP
-router.post('/verify-email-otp', (req, res) => {
+router.post("/verify-email-otp", async (req, res) => {
   const { email, otp } = req.body;
+  const [rows] = await db.query("SELECT * FROM otp_verifications WHERE email = ? AND type = 'email' ORDER BY id DESC LIMIT 1", [email]);
 
-  const sql = `SELECT * FROM otp_verifications WHERE email = ? AND email_otp = ?`;
-  db.query(sql, [email, otp], (err, results) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
+  if (!rows.length || rows[0].otp_code !== otp) {
+    return res.status(400).json({ success: false, message: "Invalid OTP" });
+  }
 
-    if (results.length === 0) return res.status(400).json({ error: 'Invalid OTP' });
-
-    const updateSql = `UPDATE otp_verifications SET status = 'email_verified' WHERE email = ?`;
-    db.query(updateSql, [email], () => {
-      return  res.json({ message: 'Email verified, send phone OTP' });
-    });
-  });
+  // Mark verified
+  await db.query("UPDATE otp_verifications SET is_verified = 1 WHERE id = ?", [rows[0].id]);
+  res.json({ success: true, message: "Email verified" });
 });
+
 
 
 // [3] Send Phone OTP
