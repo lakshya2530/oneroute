@@ -97,7 +97,7 @@ router.post("/register-user", async (req, res) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  const [result] = await db.query("INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified,registration_step) VALUES (?, ?, ?, 1, 1, 1)", [email, phone, hashedPassword]);
+  const [result] = await db.query("INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified,registration_step,user_type) VALUES (?, ?, ?, 1, 1, 1,'vendor')", [email, phone, hashedPassword]);
 
   const userId = result.insertId; // 👈 Get inserted ID
 
