@@ -193,6 +193,33 @@ router.post("/vendor-login", (req, res) => {
   });
 });
 
+router.post('/check-gst-pan', (req, res) => {
+  const { vendor_id } = req.body;
+
+  if (!vendor_id) {
+    return res.status(400).json({ error: 'vendor_id is required' });
+  }
+
+  const sql = 'SELECT gst_number, pan_number FROM vendor_shops WHERE vendor_id = ?';
+  db.query(sql, [vendor_id], (err, results) => {
+    if (err) {
+      return res.status(500).json({ error: 'Database error', details: err.message });
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ error: 'Vendor shop not found' });
+    }
+
+    const { gst_number, pan_number } = results[0];
+
+    res.json({
+      gst_exists: !!gst_number,
+      pan_exists: !!pan_number,
+      gst_number,
+      pan_number
+    });
+  });
+});
 // [8] Vendor Login
 // router.post("/vendor-login", async (req, res) => {
 //   try {
