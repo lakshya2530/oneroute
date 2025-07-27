@@ -40,7 +40,7 @@ router.post('/send-email-otp', (req, res) => {
     if (err) return res.status(500).json({ error: 'DB error' });
 
     // sendEmailOtp(email, otp);
-    res.json({ message: 'Email OTP sent' });
+    return  res.json({ message: 'Email OTP sent' });
   });
 });
 
