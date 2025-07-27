@@ -110,12 +110,11 @@ router.post("/create-profile", async (req, res) => {
   const { user_id, name, age, gender } = req.body;
 
   await db.query(
-    "INSERT INTO user_profiles (user_id, name, age, gender) VALUES (?, ?, ?, ?)",
-    [user_id, name, age, gender]
+    "UPDATE users SET name = ?, age = ?, gender = ?, registration_step = 2 WHERE id = ?",
+    [name, age, gender, user_id]
   );
-  await db.query("UPDATE users SET registration_step = 2 WHERE id = ?", [user_id]);
 
-  res.json({ message: "Profile created" });
+  res.json({ message: "Profile updated", registration_step: 2 });
 });
 
 // [7] Create Shop (Step 3)
