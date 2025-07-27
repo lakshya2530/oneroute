@@ -26,128 +26,171 @@ const storage = multer.diskStorage({
   return 1234;//Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-router.post("/send-email-otp", async (req, res) => {
+router.post("/send-email-otp", (req, res) => {
   const { email } = req.body;
   const otp = generateOTP();
 
-  // Store in DB
-  await db.query("INSERT INTO otp_verifications (email, otp_code, type) VALUES (?, ?, 'email')", [email, otp]);
-
-  // TODO: send email here
-  console.log(`Email OTP sent to ${email}: ${otp}`);
-
-  res.json({ success: true, message: "Email OTP sent" });
+  const sql = "INSERT INTO otp_verifications (email, otp_code, type) VALUES (?, ?, 'email')";
+  db.query(sql, [email, otp], (err) => {
+    if (err) return res.status(500).json({ error: "Database error" });
+    console.log(`Email OTP sent to ${email}: ${otp}`);
+    res.json({ success: true, message: "Email OTP sent" });
+  });
 });
-
 
 // [2] Verify Email OTP
-router.post("/verify-email-otp", async (req, res) => {
+router.post("/verify-email-otp", (req, res) => {
   const { email, otp } = req.body;
-  const [rows] = await db.query("SELECT * FROM otp_verifications WHERE email = ? AND type = 'email' ORDER BY id DESC LIMIT 1", [email]);
 
-  if (!rows.length || rows[0].otp_code !== otp) {
-    return res.status(400).json({ success: false, message: "Invalid OTP" });
-  }
+  const sql = "SELECT * FROM otp_verifications WHERE email = ? AND type = 'email' ORDER BY id DESC LIMIT 1";
+  db.query(sql, [email], (err, results) => {
+    if (err) return res.status(500).json({ error: "Database error" });
+    if (!results.length || results[0].otp_code !== otp)
+      return res.status(400).json({ success: false, message: "Invalid OTP" });
 
-  // Mark verified
-  await db.query("UPDATE otp_verifications SET is_verified = 1 WHERE id = ?", [rows[0].id]);
-  res.json({ success: true, message: "Email verified" });
+    db.query("UPDATE otp_verifications SET is_verified = 1 WHERE id = ?", [results[0].id], (updateErr) => {
+      if (updateErr) return res.status(500).json({ error: "Update error" });
+      res.json({ success: true, message: "Email verified" });
+    });
+  });
 });
 
-
-
 // [3] Send Phone OTP
-router.post("/send-phone-otp", async (req, res) => {
+router.post("/send-phone-otp", (req, res) => {
   const { phone } = req.body;
   const otp = generateOTP();
 
-  await db.query("INSERT INTO otp_verifications (phone, otp_code, type) VALUES (?, ?, 'phone')", [phone, otp]);
-
-  // TODO: Send SMS here
-  console.log(`Phone OTP sent to ${phone}: ${otp}`);
-
-  res.json({ success: true, message: "Phone OTP sent" });
+  const sql = "INSERT INTO otp_verifications (phone, otp_code, type) VALUES (?, ?, 'phone')";
+  db.query(sql, [phone, otp], (err) => {
+    if (err) return res.status(500).json({ error: "Database error" });
+    console.log(`Phone OTP sent to ${phone}: ${otp}`);
+    res.json({ success: true, message: "Phone OTP sent" });
+  });
 });
 
-
-// [4] Verify Phone OTP and Set Password
-router.post("/verify-phone-otp", async (req, res) => {
+// [4] Verify Phone OTP
+router.post("/verify-phone-otp", (req, res) => {
   const { phone, otp } = req.body;
-  const [rows] = await db.query("SELECT * FROM otp_verifications WHERE phone = ? AND type = 'phone' ORDER BY id DESC LIMIT 1", [phone]);
 
-  if (!rows.length || rows[0].otp_code !== otp) {
-    return res.status(400).json({ success: false, message: "Invalid OTP" });
-  }
+  const sql = "SELECT * FROM otp_verifications WHERE phone = ? AND type = 'phone' ORDER BY id DESC LIMIT 1";
+  db.query(sql, [phone], (err, results) => {
+    if (err) return res.status(500).json({ error: "Database error" });
+    if (!results.length || results[0].otp_code !== otp)
+      return res.status(400).json({ success: false, message: "Invalid OTP" });
 
-  await db.query("UPDATE otp_verifications SET is_verified = 1 WHERE id = ?", [rows[0].id]);
-  res.json({ success: true, message: "Phone verified" });
+    db.query("UPDATE otp_verifications SET is_verified = 1 WHERE id = ?", [results[0].id], (updateErr) => {
+      if (updateErr) return res.status(500).json({ error: "Update error" });
+      res.json({ success: true, message: "Phone verified" });
+    });
+  });
 });
 
-router.post("/register-user", async (req, res) => {
+// [5] Register User
+router.post("/register-user", (req, res) => {
   const { email, phone, password, confirm_password } = req.body;
 
   if (password !== confirm_password) return res.status(400).json({ message: "Passwords do not match" });
 
-  const [emailRows] = await db.query("SELECT * FROM otp_verifications WHERE email = ? AND type = 'email' AND is_verified = 1", [email]);
-  const [phoneRows] = await db.query("SELECT * FROM otp_verifications WHERE phone = ? AND type = 'phone' AND is_verified = 1", [phone]);
+  const emailSQL = "SELECT * FROM otp_verifications WHERE email = ? AND type = 'email' AND is_verified = 1";
+  const phoneSQL = "SELECT * FROM otp_verifications WHERE phone = ? AND type = 'phone' AND is_verified = 1";
 
-  if (!emailRows.length || !phoneRows.length) {
-    return res.status(400).json({ message: "Email and Phone must be verified" });
-  }
+  db.query(emailSQL, [email], (err1, emailRows) => {
+    if (err1) return res.status(500).json({ error: "Email check failed" });
 
-  const hashedPassword = await bcrypt.hash(password, 10);
+    db.query(phoneSQL, [phone], (err2, phoneRows) => {
+      if (err2) return res.status(500).json({ error: "Phone check failed" });
 
-  const [result] = await db.query("INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified,registration_step,user_type) VALUES (?, ?, ?, 1, 1, 1,'vendor')", [email, phone, hashedPassword]);
+      if (!emailRows.length || !phoneRows.length) {
+        return res.status(400).json({ message: "Email and Phone must be verified" });
+      }
 
-  const userId = result.insertId; // 👈 Get inserted ID
+      bcrypt.hash(password, 10, (hashErr, hashedPassword) => {
+        if (hashErr) return res.status(500).json({ error: "Hashing error" });
 
-  res.json({ success: true, message: "User registered successfully",user_id: userId });
+        const insertSQL = `
+          INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified, registration_step, user_type)
+          VALUES (?, ?, ?, 1, 1, 1, 'vendor')
+        `;
+        db.query(insertSQL, [email, phone, hashedPassword], (insertErr, result) => {
+          if (insertErr) return res.status(500).json({ error: "Insert error" });
+
+          res.json({ success: true, message: "User registered successfully", user_id: result.insertId });
+        });
+      });
+    });
+  });
 });
 
-
-
-router.post("/create-profile", async (req, res) => {
+// [6] Create Profile
+router.post("/create-profile", (req, res) => {
   const { user_id, full_name, age, gender } = req.body;
 
-  await db.query(
-    "UPDATE users SET full_name = ?, age = ?, gender = ?, registration_step = 2 WHERE id = ?",
-    [full_name, age, gender, user_id]
-  );
-
-  res.json({ message: "Profile updated", registration_step: 2 });
+  const sql = "UPDATE users SET full_name = ?, age = ?, gender = ?, registration_step = 2 WHERE id = ?";
+  db.query(sql, [full_name, age, gender, user_id], (err) => {
+    if (err) return res.status(500).json({ error: "Profile update error" });
+    res.json({ message: "Profile updated", registration_step: 2 });
+  });
 });
 
-// [7] Create Shop (Step 3)
-router.post("/create-shop", async (req, res) => {
+// [7] Create Shop
+router.post("/create-shop", (req, res) => {
   const { user_id, shop_name, address } = req.body;
 
-  await db.query(
-    "INSERT INTO vendor_shops (vendor_id, shop_name, address, is_approved) VALUES (?, ?, ?, 0)",
-    [user_id, shop_name, address]
-  );
-  await db.query("UPDATE users SET registration_step = 3 WHERE id = ?", [user_id]);
+  const insertShop = "INSERT INTO vendor_shops (vendor_id, shop_name, address, is_approved) VALUES (?, ?, ?, 0)";
+  const updateUser = "UPDATE users SET registration_step = 3 WHERE id = ?";
 
-  res.json({ message: "Shop created, pending admin approval" });
+  db.query(insertShop, [user_id, shop_name, address], (shopErr) => {
+    if (shopErr) return res.status(500).json({ error: "Shop creation failed" });
+
+    db.query(updateUser, [user_id], (updateErr) => {
+      if (updateErr) return res.status(500).json({ error: "User update failed" });
+
+      res.json({ message: "Shop created, pending admin approval" });
+    });
+  });
 });
 
-router.post("/vendor-login", async (req, res) => {
-  try {
-    const { identifier, password } = req.body;
+// [8] Vendor Login
+router.post("/vendor-login", (req, res) => {
+  const { identifier, password } = req.body;
 
-    const [results] = await db.query(
-      `SELECT * FROM users WHERE (email = ? OR phone = ?)`,
-      [identifier, identifier]
-    );
+  const sql = "SELECT * FROM users WHERE email = ? OR phone = ?";
+  db.query(sql, [identifier, identifier], (err, results) => {
+    if (err) return res.status(500).json({ error: "Database error" });
+    if (!results.length) return res.status(401).json({ error: "Invalid credentials" });
 
-    if (results.length === 0) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
+    const user = results[0];
 
-    res.json({ success: true, user: results[0] });
-  } catch (err) {
-    console.error("Login Error:", err);
-    res.status(500).json({ error: "Server error" });
-  }
+    bcrypt.compare(password, user.password, (compareErr, isMatch) => {
+      if (compareErr || !isMatch) return res.status(401).json({ error: "Invalid credentials" });
+
+      const token = jwt.sign(
+        { id: user.id, email: user.email, user_type: user.user_type },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+      const shopSQL = "SELECT * FROM vendor_shops WHERE vendor_id = ?";
+      db.query(shopSQL, [user.id], (shopErr, shopResults) => {
+        if (shopErr) return res.status(500).json({ error: "Shop check failed" });
+
+        const has_shop = shopResults.length > 0;
+        const shop = has_shop ? shopResults[0] : null;
+
+        delete user.password; // remove password from response
+
+        res.json({
+          message: "Login successful",
+          token,
+          user: {
+            ...user,
+            has_shop,
+            shop
+          }
+        });
+      });
+    });
+  });
 });
 
 // [8] Vendor Login
