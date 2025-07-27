@@ -97,49 +97,65 @@ router.post("/register-user", async (req, res) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  await db.query("INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified) VALUES (?, ?, ?, 1, 1)", [email, phone, hashedPassword]);
+  await db.query("INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified,registration_step) VALUES (?, ?, ?, 1, 1, 1)", [email, phone, hashedPassword]);
 
   res.json({ success: true, message: "User registered successfully" });
 });
 
 
 
-router.post('/create-vendor-profile', (req, res) => {
+router.post("/create-profile", async (req, res) => {
   const { user_id, name, age, gender } = req.body;
 
-  const sql = `UPDATE users SET name = ?, age = ?, gender = ?, status = 'step_2_complete' WHERE id = ?`;
-  db.query(sql, [name, age, gender, user_id], (err) => {
-    if (err) return res.status(500).json({ error: 'Profile creation failed' });
+  await db.query(
+    "INSERT INTO user_profiles (user_id, name, age, gender) VALUES (?, ?, ?, ?)",
+    [user_id, name, age, gender]
+  );
+  await db.query("UPDATE users SET registration_step = 2 WHERE id = ?", [user_id]);
 
-    return res.json({ message: 'Profile created. Proceed to shop info.' });
-  });
+  res.json({ message: "Profile created" });
 });
 
+// [7] Create Shop (Step 3)
+router.post("/create-shop", async (req, res) => {
+  const { user_id, shop_name, address } = req.body;
 
-router.post('/vendor-login', (req, res) => {
+  await db.query(
+    "INSERT INTO vendor_shops (vendor_id, shop_name, address, is_approved) VALUES (?, ?, ?, 0)",
+    [user_id, shop_name, address]
+  );
+  await db.query("UPDATE users SET registration_step = 3 WHERE id = ?", [user_id]);
+
+  res.json({ message: "Shop created, pending admin approval" });
+});
+
+// [8] Vendor Login
+router.post("/vendor-login", (req, res) => {
   const { identifier, password } = req.body;
-  const sql = `SELECT * FROM users WHERE (email = ? OR phone = ?) AND user_type = 'vendor'`;
 
+  const sql = `SELECT * FROM users WHERE (email = ? OR phone = ?) AND user_type = 'vendor'`;
   db.query(sql, [identifier, identifier], async (err, results) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
-    if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+    if (err) return res.status(500).json({ error: "DB error" });
+    if (results.length === 0)
+      return res.status(401).json({ error: "Invalid credentials" });
 
     const user = results[0];
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+    if (!match) return res.status(401).json({ error: "Invalid credentials" });
 
-    const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
-      expiresIn: '7d',
-    });
+    const token = jwt.sign(
+      { id: user.id, email: user.email, user_type: user.user_type },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
 
-    // Check for shop
-    const shopSql = `SELECT * FROM vendor_shops WHERE vendor_id = ?`;
-    db.query(shopSql, [user.id], (err2, shopResult) => {
-      if (err2) return res.status(500).json({ error: 'Shop check error' });
+    db.query("SELECT * FROM vendor_shops WHERE vendor_id = ?", [user.id], (err2, shopResult) => {
+      if (err2) return res.status(500).json({ error: "Shop check error" });
 
       delete user.password;
+
       res.json({
-        message: 'Login successful',
+        message: "Login successful",
         token,
         user: {
           ...user,
