@@ -97,9 +97,11 @@ router.post("/register-user", async (req, res) => {
 
   const hashedPassword = await bcrypt.hash(password, 10);
 
-  await db.query("INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified,registration_step) VALUES (?, ?, ?, 1, 1, 1)", [email, phone, hashedPassword]);
+  const [result] = await db.query("INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified,registration_step) VALUES (?, ?, ?, 1, 1, 1)", [email, phone, hashedPassword]);
 
-  res.json({ success: true, message: "User registered successfully" });
+  const userId = result.insertId; // 👈 Get inserted ID
+
+  res.json({ success: true, message: "User registered successfully",user_id: userId });
 });
 
 
