@@ -131,31 +131,31 @@ router.post("/create-shop", async (req, res) => {
 });
 
 // [8] Vendor Login
-router.post("/vendor-login", async (req, res) => {
-  try {
-    const { identifier, password } = req.body;
+// router.post("/vendor-login", async (req, res) => {
+//   try {
+//     const { identifier, password } = req.body;
 
-    const [results] = await db.query(
-      `SELECT * FROM users WHERE (email = ? OR phone = ?)`,
-      [identifier, identifier]
-    );
+//     const [results] = await db.query(
+//       `SELECT * FROM users WHERE (email = ? OR phone = ?)`,
+//       [identifier, identifier]
+//     );
 
-    if (results.length === 0) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
+//     if (results.length === 0) {
+//       return res.status(401).json({ error: "Invalid credentials" });
+//     }
 
-    // Compare password (use bcrypt if hashed)
-    const user = results[0];
-    if (user.password !== password) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
+//     // Compare password (use bcrypt if hashed)
+//     const user = results[0];
+//     if (user.password !== password) {
+//       return res.status(401).json({ error: "Invalid credentials" });
+//     }
 
-    res.json({ message: "Login successful", user });
-  } catch (error) {
-    console.error("Error in vendor login:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
-});
+//     res.json({ message: "Login successful", user });
+//   } catch (error) {
+//     console.error("Error in vendor login:", error);
+//     res.status(500).json({ error: "Internal server error" });
+//   }
+// });
 
 
 
@@ -308,49 +308,49 @@ router.post("/vendor-login", async (req, res) => {
 // });
 
 // // ✅ Login
-// router.post('/vendor-login', (req, res) => {
-//     const { email, password } = req.body;
+router.post('/vendor-login', (req, res) => {
+    const { email, password } = req.body;
   
-//     const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "vendor"';
-//     db.query(sql, [email], async (err, results) => {
-//       if (err) return res.status(500).json({ error: 'Database error' });
-//       if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+    const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "vendor"';
+    db.query(sql, [email], async (err, results) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+      if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
   
-//       const user = results[0];
+      const user = results[0];
   
-//       const match = await bcrypt.compare(password, user.password);
-//       if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+      const match = await bcrypt.compare(password, user.password);
+      if (!match) return res.status(401).json({ error: 'Invalid credentials' });
   
-//       // ✅ Generate JWT token
-//       const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
-//         expiresIn: '7d',
-//       });
+      // ✅ Generate JWT token
+      const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
+        expiresIn: '7d',
+      });
 
 
-//           // ✅ Check if the vendor has a shop
-//     const shopCheckSql = 'SELECT * FROM vendor_shops WHERE vendor_id = ?';
-//     db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
-//       if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
+          // ✅ Check if the vendor has a shop
+    const shopCheckSql = 'SELECT * FROM vendor_shops WHERE vendor_id = ?';
+    db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
+      if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
 
-//       const has_shop = shopResult.length > 0;
-//       const shop_data = has_shop ? shopResult[0] : null;
+      const has_shop = shopResult.length > 0;
+      const shop_data = has_shop ? shopResult[0] : null;
       
 
-//       // Optional: exclude password from response
-//       delete user.password;
+      // Optional: exclude password from response
+      delete user.password;
 
-//       res.json({
-//         message: 'Login successful',
-//         token,
-//         user: {
-//           ...user,
-//           has_shop,
-//           shop:shop_data
-//         },
-//       });
-//     });
-//   });
-// });
+      res.json({
+        message: 'Login successful',
+        token,
+        user: {
+          ...user,
+          has_shop,
+          shop:shop_data
+        },
+      });
+    });
+  });
+});
   
 //       res.json({
 //         message: 'Login successful',
