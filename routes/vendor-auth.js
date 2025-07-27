@@ -133,49 +133,30 @@ router.post("/create-shop", async (req, res) => {
 // [8] Vendor Login
 router.post("/vendor-login", async (req, res) => {
   try {
-    console.log("Login route hit", req.body);
-
     const { identifier, password } = req.body;
-    const [results] = await db.promise().query(
-      // AND user_type = 'vendor'
+
+    const [results] = await db.query(
       `SELECT * FROM users WHERE (email = ? OR phone = ?)`,
       [identifier, identifier]
     );
 
+    if (results.length === 0) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
-    // if (results.length === 0)
-    //   return res.status(401).json({ error: "Invalid credentials" });
-
+    // Compare password (use bcrypt if hashed)
     const user = results[0];
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ error: "Invalid credentials" });
+    if (user.password !== password) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
 
-    const token = jwt.sign(
-      { id: user.id, email: user.email, user_type: user.user_type },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-
-    const [shopResult] = await db
-      .promise()
-      .query("SELECT * FROM vendor_shops WHERE vendor_id = ?", [user.id]);
-
-    delete user.password;
-
-    res.json({
-      message: "Login successful",
-      token,
-      user: {
-        ...user,
-        has_shop: shopResult.length > 0,
-        shop: shopResult[0] || null,
-      },
-    });
-  } catch (err) {
-    console.error("Error in vendor login:", err);
+    res.json({ message: "Login successful", user });
+  } catch (error) {
+    console.error("Error in vendor login:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 
 // STEP 1: Start signup (store temp values and OTP)
