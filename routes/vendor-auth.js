@@ -131,12 +131,16 @@ router.post("/create-shop", async (req, res) => {
 });
 
 // [8] Vendor Login
-router.post("/vendor-login", async(req, res) => {
-  const { identifier, password } = req.body;
+router.post("/vendor-login", async (req, res) => {
+  try {
+    console.log("Login route hit", req.body);
 
-  const sql = `SELECT * FROM users WHERE (email = ? OR phone = ?) AND user_type = 'vendor'`;
-  db.query(sql, [identifier, identifier], async (err, results) => {
-    if (err) return res.status(500).json({ error: "DB error" });
+    const { identifier, password } = req.body;
+    const [results] = await db.promise().query(
+      `SELECT * FROM users WHERE (email = ? OR phone = ?) AND user_type = 'vendor'`,
+      [identifier, identifier]
+    );
+
     if (results.length === 0)
       return res.status(401).json({ error: "Invalid credentials" });
 
@@ -150,22 +154,25 @@ router.post("/vendor-login", async(req, res) => {
       { expiresIn: "7d" }
     );
 
-    db.query("SELECT * FROM vendor_shops WHERE vendor_id = ?", [user.id], (err2, shopResult) => {
-      if (err2) return res.status(500).json({ error: "Shop check error" });
+    const [shopResult] = await db
+      .promise()
+      .query("SELECT * FROM vendor_shops WHERE vendor_id = ?", [user.id]);
 
-      delete user.password;
+    delete user.password;
 
-      res.json({
-        message: "Login successful",
-        token,
-        user: {
-          ...user,
-          has_shop: shopResult.length > 0,
-          shop: shopResult[0] || null,
-        },
-      });
+    res.json({
+      message: "Login successful",
+      token,
+      user: {
+        ...user,
+        has_shop: shopResult.length > 0,
+        shop: shopResult[0] || null,
+      },
     });
-  });
+  } catch (err) {
+    console.error("Error in vendor login:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 
