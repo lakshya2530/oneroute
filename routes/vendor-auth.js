@@ -37,13 +37,13 @@ router.post('/send-email-otp', (req, res) => {
   `;
 
   db.query(sql, [email, otp, otp], (err) => {
-    if (err) return res.status(500).json({ error: 'DB error' });
+    if (err) return res.status(500).json({ error: 'Database error' });
 
-    // sendEmailOtp(email, otp);
-    return  res.json({ message: 'Email OTP sent' });
+    console.log(`Email OTP sent to ${email}: ${otp}`);
+    // You can use nodemailer/sendgrid here
+    res.json({ message: 'Email OTP sent' });
   });
 });
-
 
 // [2] Verify Email OTP
 router.post('/verify-email-otp', (req, res) => {
@@ -57,7 +57,7 @@ router.post('/verify-email-otp', (req, res) => {
 
     const updateSql = `UPDATE otp_verifications SET status = 'email_verified' WHERE email = ?`;
     db.query(updateSql, [email], () => {
-      res.json({ message: 'Email verified, send phone OTP' });
+      return  res.json({ message: 'Email verified, send phone OTP' });
     });
   });
 });
@@ -73,7 +73,7 @@ router.post('/send-phone-otp', (req, res) => {
     if (err) return res.status(500).json({ error: 'DB error' });
 
    // sendSmsOtp(phone, otp); // Your SMS function
-    res.json({ message: 'Phone OTP sent' });
+   return  res.json({ message: 'Phone OTP sent' });
   });
 });
 
@@ -92,7 +92,7 @@ router.post('/verify-phone-otp-and-register', async (req, res) => {
     const insertSql = `INSERT INTO users (email, phone, password, user_type, status)
                        VALUES (?, ?, ?, 'vendor', 'step_1_complete')`;
     db.query(insertSql, [email, phone, hashedPassword], () => {
-      res.json({ message: 'Phone verified and password set. Proceed to profile.' });
+      return res.json({ message: 'Phone verified and password set. Proceed to profile.' });
     });
   });
 });
@@ -104,7 +104,7 @@ router.post('/create-vendor-profile', (req, res) => {
   db.query(sql, [name, age, gender, user_id], (err) => {
     if (err) return res.status(500).json({ error: 'Profile creation failed' });
 
-    res.json({ message: 'Profile created. Proceed to shop info.' });
+    return res.json({ message: 'Profile created. Proceed to shop info.' });
   });
 });
 
