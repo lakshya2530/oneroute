@@ -38,7 +38,7 @@ router.post('/send-email-otp', (req, res) => {
     if (err) return res.status(500).json({ error: 'DB error' });
 
     // Send OTP via email here
-    sendEmailOtp(email, otp); // Your function
+   // sendEmailOtp(email, otp); // Your function
     res.json({ message: 'Email OTP sent' });
   });
 });
@@ -70,7 +70,7 @@ router.post('/send-phone-otp', (req, res) => {
   db.query(sql, [phone, otp, email], (err) => {
     if (err) return res.status(500).json({ error: 'DB error' });
 
-    sendSmsOtp(phone, otp); // Your SMS function
+   // sendSmsOtp(phone, otp); // Your SMS function
     res.json({ message: 'Phone OTP sent' });
   });
 });
