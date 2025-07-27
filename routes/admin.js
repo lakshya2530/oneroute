@@ -287,5 +287,104 @@ router.patch('/delivery-status/:id', (req, res) => {
 
 
 
+
+router.post('/service-category-create', (req, res) => {
+  const { name } = req.body;
+  db.query('INSERT INTO service_categories (name) VALUES (?)', [name], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Service category created', id: result.insertId });
+  });
+});
+
+router.put('/service-category-update/:id', (req, res) => {
+  const { id } = req.params;
+  const { name } = req.body;
+  db.query('UPDATE service_categories SET name = ? WHERE id = ?', [name, id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Service category updated' });
+  });
+});
+
+router.get('/service-category-list', (req, res) => {
+  db.query('SELECT * FROM service_categories ORDER BY id DESC', (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(results);
+  });
+});
+
+router.delete('/service-category-delete/:id', (req, res) => {
+  const { id } = req.params;
+
+  // Optional: Check for subcategories
+  db.query('SELECT COUNT(*) AS count FROM service_subcategories WHERE category_id = ?', [id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (result[0].count > 0) {
+      return res.status(400).json({ message: 'Cannot delete category with subcategories' });
+    }
+
+    db.query('DELETE FROM service_categories WHERE id = ?', [id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Service category deleted' });
+    });
+  });
+});
+
+router.post('/service-subcategory-create', upload.single('image'), (req, res) => {
+  const { category_id, name } = req.body;
+  const image = req.file?.filename || '';
+
+  db.query(
+    'INSERT INTO service_subcategories (category_id, name, image) VALUES (?, ?, ?)',
+    [category_id, name, image],
+    (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Service subcategory created', id: result.insertId });
+    }
+  );
+});
+
+router.put('/service-subcategory-update/:id', upload.single('image'), (req, res) => {
+  const { id } = req.params;
+  const { category_id, name } = req.body;
+  const image = req.file?.filename;
+
+  const fields = { category_id, name };
+  if (image) fields.image = image;
+
+  db.query('UPDATE service_subcategories SET ? WHERE id = ?', [fields, id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Service subcategory updated' });
+  });
+});
+
+router.get('/service-subcategory-list', (req, res) => {
+  const sql = `
+    SELECT 
+      ss.id,
+      ss.name,
+      ss.image,
+      ss.category_id,
+      sc.name AS category_name
+    FROM service_subcategories ss
+    JOIN service_categories sc ON ss.category_id = sc.id
+    ORDER BY ss.id DESC
+  `;
+
+  db.query(sql, (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(results);
+  });
+});
+
+router.delete('/service-subcategory-delete/:id', (req, res) => {
+  const { id } = req.params;
+  db.query('DELETE FROM service_subcategories WHERE id = ?', [id], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Service subcategory deleted' });
+  });
+});
+
+
 module.exports = router;
 

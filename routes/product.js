@@ -366,6 +366,7 @@ router.delete('/category-delete/:id', (req, res) => {
 });
 
 
+
 router.get('/main-categories', (req, res) => {
   db.query('SELECT * FROM categories WHERE parent_id IS NULL', (err, results) => {
     if (err) return res.status(500).json({ error: err.message });

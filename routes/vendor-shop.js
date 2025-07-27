@@ -49,6 +49,61 @@ router.post(
   }
 );
 
+router.post(
+  '/vendor/shop-document-create',
+  authenticate,
+  upload.fields([
+    { name: 'shop_document', maxCount: 1 },
+    { name: 'additional_document', maxCount: 1 }
+  ]),
+  (req, res) => {
+    const vendor_id = req.user.id;
+    const { gst_number, pan_number } = req.body;
+    const files = req.files;
+
+    const shop_document = files?.shop_document?.[0]?.filename || '';
+    const additional_document = files?.additional_document?.[0]?.filename || '';
+
+    // Build dynamic query based on which files are uploaded
+    const updates = [];
+    const values = [];
+
+    if (gst_number) {
+      updates.push('gst_number = ?');
+      values.push(gst_number);
+    }
+
+    if (pan_number) {
+      updates.push('pan_number = ?');
+      values.push(pan_number);
+    }
+
+    if (shop_document) {
+      updates.push('shop_document = ?');
+      values.push(shop_document);
+    }
+
+    if (additional_document) {
+      updates.push('additional_document = ?');
+      values.push(additional_document);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    values.push(vendor_id); // Add vendor_id for WHERE clause
+
+    const sql = `UPDATE vendor_shops SET ${updates.join(', ')} WHERE vendor_id = ?`;
+
+    db.query(sql, values, (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      res.json({ message: 'Shop updated successfully' });
+    });
+  }
+);
+
 // ✅ Edit Shop API
 router.put(
   '/vendor/shop-edit/:id',

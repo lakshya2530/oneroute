@@ -134,12 +134,12 @@ router.post("/create-profile", (req, res) => {
 
 // [7] Create Shop
 router.post("/create-shop", (req, res) => {
-  const { user_id, shop_name, address } = req.body;
+  const { user_id, shop_name, address, pincode, state, city,owner_name } = req.body;
 
-  const insertShop = "INSERT INTO vendor_shops (vendor_id, shop_name, address, is_approved) VALUES (?, ?, ?, 0)";
+  const insertShop = "INSERT INTO vendor_shops (vendor_id, shop_name, address, is_approved,pincode,state,city,owner_name) VALUES (?, ?, ?, 0, ?, ?, ?, ?)";
   const updateUser = "UPDATE users SET registration_step = 3 WHERE id = ?";
 
-  db.query(insertShop, [user_id, shop_name, address], (shopErr) => {
+  db.query(insertShop, [user_id, shop_name, address,pincode, state, city,owner_name], (shopErr) => {
     if (shopErr) return res.status(500).json({ error: "Shop creation failed" });
 
     db.query(updateUser, [user_id], (updateErr) => {
@@ -220,6 +220,31 @@ router.post('/check-gst-pan', (req, res) => {
     });
   });
 });
+
+
+router.post('/user-verify', (req, res) => {
+  const { user_id } = req.body;
+
+  if (!user_id) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+
+  const sql = 'UPDATE users SET status = "verified" WHERE id = ?';
+  db.query(sql, [user_id], (err, result) => {
+    if (err) {
+      console.error('Database error:', err);
+      return res.status(500).json({ error: 'Database error' });
+    }
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'User not found or already verified' });
+    }
+
+    res.json({ message: 'User has been marked as verified', user_id });
+  });
+});
+
+
 // [8] Vendor Login
 // router.post("/vendor-login", async (req, res) => {
 //   try {
