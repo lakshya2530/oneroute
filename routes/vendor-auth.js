@@ -83,6 +83,26 @@ router.post("/verify-phone-otp", async (req, res) => {
   res.json({ success: true, message: "Phone verified" });
 });
 
+router.post("/register-user", async (req, res) => {
+  const { email, phone, password, confirm_password } = req.body;
+
+  if (password !== confirm_password) return res.status(400).json({ message: "Passwords do not match" });
+
+  const [emailRows] = await db.query("SELECT * FROM otp_verifications WHERE email = ? AND type = 'email' AND is_verified = 1", [email]);
+  const [phoneRows] = await db.query("SELECT * FROM otp_verifications WHERE phone = ? AND type = 'phone' AND is_verified = 1", [phone]);
+
+  if (!emailRows.length || !phoneRows.length) {
+    return res.status(400).json({ message: "Email and Phone must be verified" });
+  }
+
+  const hashedPassword = await bcrypt.hash(password, 10);
+
+  await db.query("INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified) VALUES (?, ?, ?, 1, 1)", [email, phone, hashedPassword]);
+
+  res.json({ success: true, message: "User registered successfully" });
+});
+
+
 
 router.post('/create-vendor-profile', (req, res) => {
   const { user_id, name, age, gender } = req.body;
