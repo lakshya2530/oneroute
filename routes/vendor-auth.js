@@ -28,20 +28,22 @@ const storage = multer.diskStorage({
 
 router.post('/send-email-otp', (req, res) => {
   const { email } = req.body;
-  const otp = generateOtp(); // Custom function
+  const otp = generateOtp();
 
-  // Save to temp table or cache (like Redis), here assuming DB
-  const sql = `INSERT INTO otp_verifications (email, email_otp, status) VALUES (?, ?, 'email_sent')
-               ON DUPLICATE KEY UPDATE email_otp = ?, status = 'email_sent'`;
+  const sql = `
+    INSERT INTO otp_verifications (email, email_otp, status)
+    VALUES (?, ?, 'email_sent')
+    ON DUPLICATE KEY UPDATE email_otp = ?, status = 'email_sent'
+  `;
 
   db.query(sql, [email, otp, otp], (err) => {
     if (err) return res.status(500).json({ error: 'DB error' });
 
-    // Send OTP via email here
-   // sendEmailOtp(email, otp); // Your function
+    // sendEmailOtp(email, otp);
     res.json({ message: 'Email OTP sent' });
   });
 });
+
 
 // [2] Verify Email OTP
 router.post('/verify-email-otp', (req, res) => {
