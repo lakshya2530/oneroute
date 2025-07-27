@@ -142,8 +142,9 @@ router.post("/vendor-login", async (req, res) => {
       [identifier, identifier]
     );
 
-    if (results.length === 0)
-      return res.status(401).json({ error: "Invalid credentials" });
+
+    // if (results.length === 0)
+    //   return res.status(401).json({ error: "Invalid credentials" });
 
     const user = results[0];
     const match = await bcrypt.compare(password, user.password);
