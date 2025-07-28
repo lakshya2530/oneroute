@@ -67,11 +67,28 @@ router.post('/vendor-register', upload.single('shop_certificate'), (req, res) =>
 
 // List
 router.get('/vendor-list', (req, res) => {
-    db.query('SELECT * FROM users', (err, rows) => {
-        if (err) return res.status(500).send(err);
-        res.json(rows);
-    });
+  const { status } = req.query;
+
+  let sql = 'SELECT * FROM users WHERE role = "vendor"';
+  const params = [];
+
+  if (status && ['VERIFIED', 'ACTIVE', 'PENDING', 'INACTIVE'].includes(status.toLowerCase())) {
+    sql += ' AND status = ?';
+    params.push(status.toLowerCase());
+  }
+
+  db.query(sql, params, (err, rows) => {
+    if (err) return res.status(500).send(err);
+    res.json(rows);
+  });
 });
+
+// router.get('/vendor-list', (req, res) => {
+//     db.query('SELECT * FROM users', (err, rows) => {
+//         if (err) return res.status(500).send(err);
+//         res.json(rows);
+//     });
+// });
 
 // Edit
 // router.put('/update-vendor/:id', (req, res) => {
