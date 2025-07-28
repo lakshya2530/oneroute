@@ -69,19 +69,46 @@ router.post('/vendor-register', upload.single('shop_certificate'), (req, res) =>
 router.get('/vendor-list', (req, res) => {
   const { status } = req.query;
 
-  let sql = 'SELECT * FROM users WHERE user_type = "vendor" ORDER BY id DESC';
+  let sql = `
+    SELECT 
+      u.*, 
+      vs.* 
+    FROM users u
+    LEFT JOIN vendor_shops vs ON vs.user_id = u.id
+    WHERE u.user_type = "vendor"
+  `;
+  
   const params = [];
 
   if (status && ['VERIFIED', 'ACTIVE', 'PENDING', 'INACTIVE'].includes(status.toUpperCase())) {
-    sql += ' AND status = ?';
+    sql += ' AND u.status = ?';
     params.push(status.toUpperCase());
   }
+
+  sql += ' ORDER BY u.id DESC';
 
   db.query(sql, params, (err, rows) => {
     if (err) return res.status(500).send(err);
     res.json(rows);
   });
 });
+
+// router.get('/vendor-list', (req, res) => {
+//   const { status } = req.query;
+
+//   let sql = 'SELECT * FROM users WHERE user_type = "vendor" ORDER BY id DESC';
+//   const params = [];
+
+//   if (status && ['VERIFIED', 'ACTIVE', 'PENDING', 'INACTIVE'].includes(status.toUpperCase())) {
+//     sql += ' AND status = ?';
+//     params.push(status.toUpperCase());
+//   }
+
+//   db.query(sql, params, (err, rows) => {
+//     if (err) return res.status(500).send(err);
+//     res.json(rows);
+//   });
+// });
 
 // router.get('/vendor-list', (req, res) => {
 //     db.query('SELECT * FROM users', (err, rows) => {
