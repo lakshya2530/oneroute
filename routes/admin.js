@@ -74,7 +74,7 @@ router.get('/vendor-list', (req, res) => {
       u.*, 
       vs.* 
     FROM users u
-    LEFT JOIN vendor_shops vs ON vs.user_id = u.id
+    LEFT JOIN vendor_shops vs ON vs.vendor_id = u.id
     WHERE u.user_type = "vendor"
   `;
   
