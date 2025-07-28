@@ -211,4 +211,37 @@ router.get('/vendor-orders', authenticate, (req, res) => {
     });
   });
   
+  router.post('/create-service', (req, res) => {
+    const { sub_category_id, service_description, price, approx_time, vendor_id } = req.body;
+
+    if (!sub_category_id || !service_description || !price || !approx_time || !vendor_id) {
+        return res.status(400).json({ error: 'All fields are required' });
+    }
+
+    // 1. Get the service name from subcategory
+    const subCategoryQuery = 'SELECT name FROM subcategories WHERE id = ?';
+    db.query(subCategoryQuery, [sub_category_id], (err, subResults) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        if (subResults.length === 0) return res.status(404).json({ error: 'Subcategory not found' });
+
+        const service_name = subResults[0].name;
+
+        // 2. Insert into services table
+        const insertQuery = `INSERT INTO services 
+            (sub_category_id, service_name, service_description, price, approx_time, vendor_id)
+            VALUES (?, ?, ?, ?, ?, ?)`;
+
+        const values = [sub_category_id, service_name, service_description, price, approx_time, vendor_id];
+
+        db.query(insertQuery, values, (err2, result) => {
+            if (err2) return res.status(500).json({ error: 'Failed to create service' });
+
+            res.json({
+                message: 'Service created successfully',
+                service_id: result.insertId,
+                service_name,
+            });
+        });
+    });
+});
 module.exports = router;
