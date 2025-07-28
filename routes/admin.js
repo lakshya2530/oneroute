@@ -150,12 +150,29 @@ router.post('/customer-register', (req, res) => {
   });
 });
 
+// router.get('/customer-list', (req, res) => {
+//   db.query(`SELECT * FROM users WHERE user_type = 'customer'`, (err, results) => {
+//       if (err) return res.status(500).send(err);
+//       res.json(results);
+//   });
+// });
+
 router.get('/customer-list', (req, res) => {
-  db.query(`SELECT * FROM users WHERE user_type = 'customer'`, (err, results) => {
-      if (err) return res.status(500).send(err);
-      res.json(results);
+  const { status } = req.query;
+  let sql = "SELECT * FROM users WHERE user_type = 'customer'";
+  const params = [];
+
+  if (status && ['verified', 'active', 'pending', 'inactive'].includes(status.toLowerCase())) {
+    sql += ' AND status = ?';
+    params.push(status.toUpperCase());
+  }
+
+  db.query(sql, params, (err, results) => {
+    if (err) return res.status(500).send(err);
+    res.json(results);
   });
 });
+
 
 router.put('/customer-update/:id', (req, res) => {
   const { id } = req.params;
@@ -227,11 +244,21 @@ router.post(
 );
 
 router.get('/delivery-list', (req, res) => {
-  db.query("SELECT * FROM users WHERE user_type = 'delivery'", (err, results) => {
+  const { status } = req.query;
+  let sql = "SELECT * FROM users WHERE user_type = 'delivery'";
+  const params = [];
+
+  if (status && ['verified', 'active', 'pending', 'inactive'].includes(status.toLowerCase())) {
+    sql += ' AND status = ?';
+    params.push(status.toUpperCase());
+  }
+
+  db.query(sql, params, (err, results) => {
     if (err) return res.status(500).send(err);
     res.json(results);
   });
 });
+
 
 router.put(
   '/delivery-update/:id',
