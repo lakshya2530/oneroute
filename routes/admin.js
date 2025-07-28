@@ -72,9 +72,9 @@ router.get('/vendor-list', (req, res) => {
   let sql = 'SELECT * FROM users WHERE user_type = "vendor"';
   const params = [];
 
-  if (status && ['VERIFIED', 'ACTIVE', 'PENDING', 'INACTIVE'].includes(status.toLowerCase())) {
+  if (status && ['VERIFIED', 'ACTIVE', 'PENDING', 'INACTIVE'].includes(status.toUpperCase())) {
     sql += ' AND status = ?';
-    params.push(status.toLowerCase());
+    params.push(status.toUpperCase());
   }
 
   db.query(sql, params, (err, rows) => {
