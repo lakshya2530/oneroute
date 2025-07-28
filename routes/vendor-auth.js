@@ -23,7 +23,7 @@ const storage = multer.diskStorage({
   const upload = multer({ storage: storage });
 
   function generateOTP() {
-  return 1234;//Math.floor(100000 + Math.random() * 900000).toString();
+  return 123456;//Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 router.post("/send-email-otp", (req, res) => {
