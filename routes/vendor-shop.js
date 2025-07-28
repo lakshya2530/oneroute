@@ -219,7 +219,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
     }
 
     // 1. Get the service name from subcategory
-    const subCategoryQuery = 'SELECT name FROM subcategories WHERE id = ?';
+    const subCategoryQuery = 'SELECT name FROM service_subcategories WHERE id = ?';
     db.query(subCategoryQuery, [sub_category_id], (err, subResults) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         if (subResults.length === 0) return res.status(404).json({ error: 'Subcategory not found' });
