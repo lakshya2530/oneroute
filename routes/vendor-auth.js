@@ -476,6 +476,7 @@ router.post('/user-verify', (req, res) => {
     const { full_name, user_name, age, gender, bio } = req.body;
     const userId = req.user.id; // Extracted from token
     const image = req.file?.filename;
+    
 
     const updatedData = {
       full_name,
