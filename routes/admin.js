@@ -198,7 +198,7 @@ router.get('/customer-list', (req, res) => {
 
   db.query(sql, params, (err, results) => {
     if (err) return res.status(500).send(err);
-    res.json({ shop_data: results });
+    res.json({ results });
   });
 });
 
@@ -286,9 +286,10 @@ router.get('/delivery-list', (req, res) => {
 
   db.query(sql, params, (err, results) => {
     if (err) return res.status(500).send(err);
-    res.json({ shop_data: results });
+    res.json({ results });
   });
 });
+
 
 
 router.put(
