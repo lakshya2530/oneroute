@@ -72,7 +72,17 @@ router.get('/vendor-list', (req, res) => {
   let sql = `
     SELECT 
       u.*, 
-      vs.shop_name,vs.vendor_id,vs.address,vs.gst_number,vs.pan_number,vs.owner_name,vs.shop_document,vs.additional_document,vs.pincode,vs.state,vs.city,
+      vs.shop_name,
+      vs.vendor_id,
+      vs.address,
+      vs.gst_number,
+      vs.pan_number,
+      vs.owner_name,
+      vs.shop_document,
+      vs.additional_document,
+      vs.pincode,
+      vs.state,
+      vs.city
     FROM users u
     LEFT JOIN vendor_shops vs ON vs.vendor_id = u.id
     WHERE u.user_type = "vendor"
@@ -89,9 +99,10 @@ router.get('/vendor-list', (req, res) => {
 
   db.query(sql, params, (err, rows) => {
     if (err) return res.status(500).send(err);
-    res.json(rows);
+    res.json({ shop_data: rows });
   });
 });
+
 
 // router.get('/vendor-list', (req, res) => {
 //   const { status } = req.query;
