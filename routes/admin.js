@@ -186,17 +186,19 @@ router.post('/customer-register', (req, res) => {
 
 router.get('/customer-list', (req, res) => {
   const { status } = req.query;
-  let sql = "SELECT * FROM users WHERE user_type = 'customer' ORDER BY id DESC";
+  let sql = "SELECT * FROM users WHERE user_type = 'customer'";
   const params = [];
 
-  if (status && ['verified', 'active', 'pending', 'inactive'].includes(status.toLowerCase())) {
+  if (status && ['VERIFIED', 'ACTIVE', 'PENDING', 'INACTIVE'].includes(status.toUpperCase())) {
     sql += ' AND status = ?';
     params.push(status.toUpperCase());
   }
 
+  sql += ' ORDER BY id DESC';
+
   db.query(sql, params, (err, results) => {
     if (err) return res.status(500).send(err);
-    res.json(results);
+    res.json({ shop_data: results });
   });
 });
 
@@ -272,7 +274,7 @@ router.post(
 
 router.get('/delivery-list', (req, res) => {
   const { status } = req.query;
-  let sql = "SELECT * FROM users WHERE user_type = 'delivery' ORDER BY id DESC";
+  let sql = "SELECT * FROM users WHERE user_type = 'delivery'";
   const params = [];
 
   if (status && ['verified', 'active', 'pending', 'inactive'].includes(status.toLowerCase())) {
@@ -280,9 +282,11 @@ router.get('/delivery-list', (req, res) => {
     params.push(status.toUpperCase());
   }
 
+  sql += ' ORDER BY id DESC';
+
   db.query(sql, params, (err, results) => {
     if (err) return res.status(500).send(err);
-    res.json(results);
+    res.json({ shop_data: results });
   });
 });
 

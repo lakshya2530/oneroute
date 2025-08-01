@@ -218,6 +218,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
         return res.status(400).json({ error: 'All fields are required' });
     }
 
+    
     // 1. Get the service name from subcategory
     const subCategoryQuery = 'SELECT name FROM service_subcategories WHERE id = ?';
     db.query(subCategoryQuery, [sub_category_id], (err, subResults) => {
