@@ -55,7 +55,7 @@ router.post('/customer-signup', async (req, res) => {
 });
 
 router.post("/register-customer", (req, res) => {
-  const { email, phone, password, confirm_password } = req.body;
+  const { name,email, phone, password, confirm_password } = req.body;
 
   if (password !== confirm_password) return res.status(400).json({ message: "Passwords do not match" });
 
@@ -87,10 +87,10 @@ router.post("/register-customer", (req, res) => {
         if (hashErr) return res.status(500).json({ error: "Hashing error" });
 
         const insertSQL = `
-          INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified, registration_step, user_type)
-          VALUES (?, ?, ?, 1, 1, 1, 'customer')
+          INSERT INTO users (name, email, phone, password, is_email_verified, is_phone_verified, registration_step, user_type)
+          VALUES (?, ?, ?, ?, 1, 1, 1, 'customer')
         `;
-        db.query(insertSQL, [email, phone, hashedPassword], (insertErr, result) => {
+        db.query(insertSQL, [name, email, phone, hashedPassword], (insertErr, result) => {
           if (insertErr) return res.status(500).json({ error: "Insert error" });
 
           res.json({ success: true, message: "User registered successfully", user_id: result.insertId });
