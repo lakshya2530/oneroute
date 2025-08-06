@@ -245,4 +245,42 @@ router.get('/vendor-orders', authenticate, (req, res) => {
         });
     });
 });
+
+router.get('/services-list', (req, res) => {
+  const { vendor_id } = req.query;
+
+  let sql = `
+    SELECT 
+      s.id AS service_id,
+      s.service_name,
+      s.service_description,
+      s.price,
+      s.approx_time,
+      s.vendor_id,
+      sc.name AS subcategory_name,
+      sc.image AS subcategory_image
+    FROM services s
+    LEFT JOIN service_subcategories sc ON s.sub_category_id = sc.id
+    WHERE 1=1
+  `;
+
+  const params = [];
+
+  if (vendor_id) {
+    sql += ' AND s.vendor_id = ?';
+    params.push(vendor_id);
+  }
+
+  sql += ' ORDER BY s.id DESC';
+
+  db.query(sql, params, (err, results) => {
+    if (err) return res.status(500).json({ error: 'Database error', details: err });
+    res.json({
+      status: true,
+      message: 'Services fetched successfully',
+      data: results,
+    });
+  });
+});
+
 module.exports = router;
