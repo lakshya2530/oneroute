@@ -101,46 +101,79 @@ router.post("/register-customer", (req, res) => {
 });
 
 // ✅ Login
-router.post('/customer-login', (req, res) => {
-    const { email, password } = req.body;
-  
-    const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "customer"';
-    db.query(sql, [email], async (err, results) => {
-      if (err) return res.status(500).json({ error: 'Database error' });
-      if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
-  
-      const user = results[0];
-  
-      const match = await bcrypt.compare(password, user.password);
-      if (!match) return res.status(401).json({ error: 'Invalid credentials' });
-  
-      // ✅ Generate JWT token
-      const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
-        expiresIn: '7d',
-      });
+router.post("/customer-login", (req, res) => {
+  const { identifier, password } = req.body;
 
-          // ✅ Check if the vendor has a shop
-    const shopCheckSql = 'SELECT COUNT(*) AS shop_count FROM vendor_shops WHERE vendor_id = ?';
-    db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
-      if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
+  const sql = "SELECT * FROM users WHERE email = ? OR phone = ?";
+  db.query(sql, [identifier, identifier], (err, results) => {
+    if (err) return res.status(500).json({ error: "Database error" });
+    if (!results.length) return res.status(401).json({ error: "Invalid credentials" });
 
-      const has_shop = shopResult[0].shop_count > 0;
+    const user = results[0];
 
-  
-      // Optional: exclude password from response
-      delete user.password;
+    bcrypt.compare(password, user.password, (compareErr, isMatch) => {
+      if (compareErr || !isMatch) return res.status(401).json({ error: "Invalid credentials" });
 
-      res.json({
-        message: 'Login successful',
-        token,
-        user: {
-          ...user,
-          has_shop
-        },
-      });
+      const token = jwt.sign(
+        { id: user.id, email: user.email, user_type: user.user_type },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+
+        delete user.password; // remove password from response
+
+        res.json({
+          message: "Login successful",
+          token,
+          user: {
+            ...user
+          }
+        });
+    
     });
   });
 });
+
+// router.post('/customer-login', (req, res) => {
+//     const { email, password } = req.body;
+  
+//     const sql = 'SELECT * FROM users WHERE email = ? AND user_type = "customer"';
+//     db.query(sql, [email], async (err, results) => {
+//       if (err) return res.status(500).json({ error: 'Database error' });
+//       if (results.length === 0) return res.status(401).json({ error: 'Invalid credentials' });
+  
+//       const user = results[0];
+  
+//       const match = await bcrypt.compare(password, user.password);
+//       if (!match) return res.status(401).json({ error: 'Invalid credentials' });
+  
+//       // ✅ Generate JWT token
+//       const token = jwt.sign({ id: user.id, email: user.email, user_type: user.user_type }, process.env.JWT_SECRET, {
+//         expiresIn: '7d',
+//       });
+
+//           // ✅ Check if the vendor has a shop
+//     const shopCheckSql = 'SELECT COUNT(*) AS shop_count FROM vendor_shops WHERE vendor_id = ?';
+//     db.query(shopCheckSql, [user.id], (shopErr, shopResult) => {
+//       if (shopErr) return res.status(500).json({ error: 'Shop check failed' });
+
+//       const has_shop = shopResult[0].shop_count > 0;
+
+  
+//       // Optional: exclude password from response
+//       delete user.password;
+
+//       res.json({
+//         message: 'Login successful',
+//         token,
+//         user: {
+//           ...user,
+//           has_shop
+//         },
+//       });
+//     });
+//   });
+// });
   
 //       res.json({
 //         message: 'Login successful',
