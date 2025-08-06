@@ -445,8 +445,29 @@ router.put('/service-subcategory-update/:id', upload.single('image'), (req, res)
   });
 });
 
+// router.get('/service-subcategory-list', (req, res) => {
+//   const sql = `
+//     SELECT 
+//       ss.id,
+//       ss.name,
+//       ss.image,
+//       ss.category_id,
+//       sc.name AS category_name
+//     FROM service_subcategories ss
+//     JOIN service_categories sc ON ss.category_id = sc.id
+//     ORDER BY ss.id DESC
+//   `;
+
+//   db.query(sql, (err, results) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     res.json(results);
+//   });
+// });
+
 router.get('/service-subcategory-list', (req, res) => {
-  const sql = `
+  const { category_id } = req.query;
+
+  let sql = `
     SELECT 
       ss.id,
       ss.name,
@@ -455,14 +476,24 @@ router.get('/service-subcategory-list', (req, res) => {
       sc.name AS category_name
     FROM service_subcategories ss
     JOIN service_categories sc ON ss.category_id = sc.id
-    ORDER BY ss.id DESC
+    WHERE 1 = 1
   `;
 
-  db.query(sql, (err, results) => {
+  const params = [];
+
+  if (category_id) {
+    sql += ' AND ss.category_id = ?';
+    params.push(category_id);
+  }
+
+  sql += ' ORDER BY ss.id DESC';
+
+  db.query(sql, params, (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
     res.json(results);
   });
 });
+
 
 router.delete('/service-subcategory-delete/:id', (req, res) => {
   const { id } = req.params;
