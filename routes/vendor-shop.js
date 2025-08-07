@@ -50,6 +50,27 @@ router.post(
 );
 
 router.post(
+  '/shop-image',
+  authenticate,
+  upload.fields([
+    { name: 'shop_image', maxCount: 1 }
+    ]),
+  (req, res) => {
+    const { vendor_id } = req.body;
+    const files = req.files;
+
+    const data = {
+      vendor_id,
+      shop_image: files?.shop_document?.[0]?.filename || ''
+    };
+
+    db.query('INSERT INTO vendor_shops SET ?', data, (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: 'Shop created successfully', id: result.insertId });
+    });
+  }
+);
+router.post(
   '/vendor/shop-document-create',
  // authenticate,
   upload.fields([
