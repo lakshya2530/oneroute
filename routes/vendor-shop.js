@@ -53,22 +53,30 @@ router.post(
   '/shop-image',
   upload.fields([
     { name: 'shop_image', maxCount: 1 }
-    ]),
+  ]),
   (req, res) => {
     const { vendor_id } = req.body;
     const files = req.files;
 
     const data = {
-      vendor_id,
-      shop_image: files?.shop_document?.[0]?.filename || ''
+      shop_image: files?.shop_image?.[0]?.filename || ''
     };
 
-    db.query('INSERT INTO vendor_shops SET ?', data, (err, result) => {
+    const query = 'UPDATE vendor_shops SET ? WHERE vendor_id = ?';
+
+    db.query(query, [data, vendor_id], (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
-      res.json({ message: 'Shop created successfully', id: result.insertId });
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: 'Shop not found' });
+      }
+
+      res.json({ message: 'Shop updated successfully' });
     });
   }
 );
+
+
 router.post(
   '/vendor/shop-document-create',
  // authenticate,
