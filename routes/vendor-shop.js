@@ -51,7 +51,6 @@ router.post(
 
 router.post(
   '/shop-image',
-  authenticate,
   upload.fields([
     { name: 'shop_image', maxCount: 1 }
     ]),
