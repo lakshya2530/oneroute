@@ -52,7 +52,7 @@ router.get('/customer/home', async (req, res) => {
 
     // 4. Get vendor shop list
     const shops = await new Promise((resolve, reject) => {
-      db.query('SELECT id, vendor_id, shop_name, address, gst_number, pan_number, owner_name, shop_document, additional_document FROM vendor_shops ORDER BY id DESC', (err, results) => {
+      db.query('SELECT id, vendor_id, shop_name, shop_image, address, gst_number, pan_number, owner_name, shop_document, additional_document FROM vendor_shops ORDER BY id DESC', (err, results) => {
         if (err) return reject(err);
         const formatted = results.map(s => ({
           ...s,
