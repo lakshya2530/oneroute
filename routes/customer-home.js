@@ -223,7 +223,64 @@ router.get('/customer/shops', (req, res) => {
     });
   });
   
-
+  router.get('/customer/product/:id', (req, res) => {
+    const { id } = req.params;
+    const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+  
+    const sql = `
+      SELECT 
+        p.*,
+        c.name AS category_name,
+        sc.name AS subcategory_name,
+        vs.id AS shop_id,
+        vs.shop_name,
+        vs.shop_image,
+        vs.address,
+        vs.city,
+        vs.state,
+        vs.pincode,
+        u.name AS vendor_name,
+        u.phone AS vendor_phone
+      FROM products p
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
+      LEFT JOIN vendor_shops vs ON p.vendor_id = vs.vendor_id
+      LEFT JOIN users u ON p.vendor_id = u.id
+      WHERE p.id = ?
+    `;
+  
+    db.query(sql, [id], (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!results.length) return res.status(404).json({ error: 'Product not found' });
+  
+      const p = results[0];
+  
+      let images = [];
+      let specifications = [];
+  
+      try {
+        images = JSON.parse(p.images || '[]').map(img => `${baseUrl}/products/${img}`);
+      } catch (e) {
+        images = [];
+      }
+  
+      try {
+        specifications = JSON.parse(p.specifications || '[]');
+      } catch (e) {
+        specifications = [];
+      }
+  
+      const productDetail = {
+        ...p,
+        images,
+        specifications,
+        shop_image: p.shop_image ? `${baseUrl}/shops/${p.shop_image}` : ''
+      };
+  
+      res.json(productDetail);
+    });
+  });
+  
   
   router.post('/cart/add', authenticate, (req, res) => {
     const customer_id = req.user.id;
