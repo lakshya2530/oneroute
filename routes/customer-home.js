@@ -239,7 +239,7 @@ router.get('/customer/shops', (req, res) => {
         vs.city,
         vs.state,
         vs.pincode,
-        u.name AS vendor_name,
+        u.full_name AS vendor_name,
         u.phone AS vendor_phone
       FROM products p
       LEFT JOIN categories c ON p.category = c.id
