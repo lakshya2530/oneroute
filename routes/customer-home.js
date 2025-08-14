@@ -319,7 +319,7 @@ router.get('/customer/shops', (req, res) => {
         p.name, 
         p.selling_price, 
         p.images,
-        vs.shop_name,
+        vs.shop_name
       FROM cart c
       JOIN products p ON c.product_id = p.id
       LEFT JOIN vendor_shops vs ON p.vendor_id = vs.vendor_id
