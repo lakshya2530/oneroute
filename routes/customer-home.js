@@ -102,7 +102,7 @@ router.get('/customer/shops', (req, res) => {
     const shopSql = `
       SELECT 
         vs.*,
-        u.name AS vendor_name,
+        u.full_name AS vendor_name,
         u.email AS vendor_email,
         u.phone AS vendor_phone
       FROM vendor_shops vs
