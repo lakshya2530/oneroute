@@ -312,9 +312,18 @@ router.get('/customer/shops', (req, res) => {
     const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
   
     const sql = `
-      SELECT c.id as cart_id, c.quantity, p.id as product_id, p.name, p.selling_price, p.images
+      SELECT 
+        c.id AS cart_id, 
+        c.quantity, 
+        p.id AS product_id, 
+        p.name, 
+        p.selling_price, 
+        p.images,
+        vs.shop_name,
+        vs.shop_description
       FROM cart c
       JOIN products p ON c.product_id = p.id
+      LEFT JOIN vendor_shops vs ON p.vendor_id = vs.vendor_id
       WHERE c.customer_id = ?
     `;
   
@@ -324,7 +333,14 @@ router.get('/customer/shops', (req, res) => {
       let totalAmount = 0;
   
       const cart = results.map(item => {
-        const images = JSON.parse(item.images || '[]').map(img => `${baseUrl}/products/${img}`);
+        const images = (() => {
+          try {
+            return JSON.parse(item.images || '[]').map(img => `${baseUrl}/products/${img}`);
+          } catch {
+            return [];
+          }
+        })();
+  
         const amount = item.selling_price * item.quantity;
         totalAmount += amount;
   
@@ -335,7 +351,9 @@ router.get('/customer/shops', (req, res) => {
           quantity: item.quantity,
           selling_price: item.selling_price,
           amount,
-          images
+          images,
+          shop_name: item.shop_name || '',
+          shop_description: item.shop_description || ''
         };
       });
   
@@ -345,6 +363,45 @@ router.get('/customer/shops', (req, res) => {
       });
     });
   });
+  
+  // router.get('/cart/list', authenticate, (req, res) => {
+  //   const customer_id = req.user.id;
+  //   const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+  
+  //   const sql = `
+  //     SELECT c.id as cart_id, c.quantity, p.id as product_id, p.name, p.selling_price, p.images
+  //     FROM cart c
+  //     JOIN products p ON c.product_id = p.id
+  //     WHERE c.customer_id = ?
+  //   `;
+  
+  //   db.query(sql, [customer_id], (err, results) => {
+  //     if (err) return res.status(500).json({ error: err.message });
+  
+  //     let totalAmount = 0;
+  
+  //     const cart = results.map(item => {
+  //       const images = JSON.parse(item.images || '[]').map(img => `${baseUrl}/products/${img}`);
+  //       const amount = item.selling_price * item.quantity;
+  //       totalAmount += amount;
+  
+  //       return {
+  //         cart_id: item.cart_id,
+  //         product_id: item.product_id,
+  //         name: item.name,
+  //         quantity: item.quantity,
+  //         selling_price: item.selling_price,
+  //         amount,
+  //         images
+  //       };
+  //     });
+  
+  //     res.json({
+  //       cart,
+  //       total_amount: totalAmount
+  //     });
+  //   });
+  // });
 
   router.delete('/cart/remove/:cart_id', authenticate, (req, res) => {
     const { cart_id } = req.params;
