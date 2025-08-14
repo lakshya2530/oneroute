@@ -56,7 +56,7 @@ router.get('/customer/home', async (req, res) => {
         if (err) return reject(err);
         const formatted = results.map(s => ({
           ...s,
-          shop_image:s.shop_image ? `${baseUrl}/${s.shop_image}` : '',
+          shop_image:s.shop_image ? `${baseUrl}/shops/${s.shop_image}` : '',
           shop_document: s.shop_document ? `${baseUrl}/vendor_shops/${s.shop_document}` : '',
           additional_document: s.additional_document ? `${baseUrl}/vendor_shops/${s.additional_document}` : ''
         }));
