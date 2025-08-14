@@ -426,6 +426,7 @@ router.get('/customer/shops', (req, res) => {
         const order_number = 'ORD' + Date.now();
         const orderData = {
           order_number,
+
           customer_id,
           status: 'placed',
           order_date: new Date()
@@ -486,7 +487,7 @@ router.get('/customer/shops', (req, res) => {
   
       results.forEach(order => {
        // order.delivery_date
-        const deliveryDate = new Date(order.order_date || order.order_date);
+        const deliveryDate = new Date(order.delivery_date || order.order_date);
         const images = (() => {
           try {
             return JSON.parse(order.images || '[]').map(
