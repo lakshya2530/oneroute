@@ -320,7 +320,6 @@ router.get('/customer/shops', (req, res) => {
         p.selling_price, 
         p.images,
         vs.shop_name,
-        vs.shop_description
       FROM cart c
       JOIN products p ON c.product_id = p.id
       LEFT JOIN vendor_shops vs ON p.vendor_id = vs.vendor_id
@@ -353,7 +352,7 @@ router.get('/customer/shops', (req, res) => {
           amount,
           images,
           shop_name: item.shop_name || '',
-          shop_description: item.shop_description || ''
+        //  shop_description: item.shop_description || ''
         };
       });
   
