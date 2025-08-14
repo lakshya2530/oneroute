@@ -94,6 +94,65 @@ router.get('/customer/shops', (req, res) => {
     });
   });
 
+  router.get('/customer/shop-details/:shop_id', (req, res) => {
+    const { shop_id } = req.params;
+    const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+  
+    // Step 1: Get shop details
+    const shopSql = `
+      SELECT 
+        vs.*,
+        u.name AS vendor_name,
+        u.email AS vendor_email,
+        u.phone AS vendor_phone
+      FROM vendor_shops vs
+      JOIN users u ON vs.vendor_id = u.id
+      WHERE vs.id = ?
+    `;
+  
+    db.query(shopSql, [shop_id], (err, shopResults) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!shopResults.length) return res.status(404).json({ error: 'Shop not found' });
+  
+      const shop = shopResults[0];
+  
+      // Format shop images
+      shop.shop_image = shop.shop_image ? `${baseUrl}/shops/${shop.shop_image}` : '';
+      shop.shop_document = shop.shop_document ? `${baseUrl}/vendor_shops/${shop.shop_document}` : '';
+      shop.additional_document = shop.additional_document ? `${baseUrl}/vendor_shops/${shop.additional_document}` : '';
+  
+      // Step 2: Get all products for this vendor
+      const productSql = `
+        SELECT 
+          p.*,
+          c.name AS category_name,
+          sc.name AS subcategory_name
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
+        WHERE p.vendor_id = ?
+        ORDER BY p.id DESC
+      `;
+  
+      db.query(productSql, [shop.vendor_id], (err2, productResults) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+  
+        // Format product images
+        const formattedProducts = productResults.map(p => ({
+          ...p,
+          product_image: p.product_image ? `${baseUrl}/products/${p.product_image}` : ''
+        }));
+  
+        // Step 3: Final response
+        res.json({
+          shop_details: shop,
+          products: formattedProducts
+        });
+      });
+    });
+  });
+  
+
   router.get('/customer/products', (req, res) => {
     const { category, sub_category } = req.query;
     const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
