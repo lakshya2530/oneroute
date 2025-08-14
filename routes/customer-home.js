@@ -485,7 +485,8 @@ router.get('/customer/shops', (req, res) => {
       const past = [];
   
       results.forEach(order => {
-        const deliveryDate = new Date(order.delivery_date || order.order_date);
+       // order.delivery_date
+        const deliveryDate = new Date(order.order_date || order.order_date);
         const images = (() => {
           try {
             return JSON.parse(order.images || '[]').map(
