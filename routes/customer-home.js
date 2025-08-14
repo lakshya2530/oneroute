@@ -85,7 +85,7 @@ router.get('/customer/shops', (req, res) => {
   
       const formatted = results.map(shop => ({
         ...shop,
-        shop_image:shop.shop_image ? `${baseUrl}/${shop.shop_image}` : '',
+        shop_image:shop.shop_image ? `${baseUrl}/shops/${shop.shop_image}` : '',
         shop_document: shop.shop_document ? `${baseUrl}/vendor_shops/${shop.shop_document}` : '',
         additional_document: shop.additional_document ? `${baseUrl}/vendor_shops/${shop.additional_document}` : ''
       }));
