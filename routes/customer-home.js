@@ -133,15 +133,47 @@ router.get('/customer/shops', (req, res) => {
         WHERE p.vendor_id = ?
         ORDER BY p.id DESC
       `;
-  
       db.query(productSql, [shop.vendor_id], (err2, productResults) => {
         if (err2) return res.status(500).json({ error: err2.message });
   
-        // Format product images
-        const formattedProducts = productResults.map(p => ({
-          ...p,
-          product_image: p.product_image ? `${baseUrl}/products/${p.product_image}` : ''
-        }));
+        const formattedProducts = productResults.map(p => {
+          let images = [];
+          let specifications = [];
+  
+          // Parse JSON fields if they exist
+          try {
+            if (p.images) {
+              const parsedImages = JSON.parse(p.images);
+              images = parsedImages.map(img => `${baseUrl}/products/${img}`);
+            }
+          } catch (e) {
+            images = [];
+          }
+  
+          try {
+            if (p.specifications) {
+              specifications = JSON.parse(p.specifications);
+            }
+          } catch (e) {
+            specifications = [];
+          }
+  
+          return {
+            ...p,
+            images,
+            specifications
+          };
+        });
+  
+  
+      // db.query(productSql, [shop.vendor_id], (err2, productResults) => {
+      //   if (err2) return res.status(500).json({ error: err2.message });
+  
+      //   // Format product images
+      //   const formattedProducts = productResults.map(p => ({
+      //     ...p,
+      //     product_image: p.product_image ? `${baseUrl}/products/${p.product_image}` : ''
+      //   }));
   
         // Step 3: Final response
         res.json({
