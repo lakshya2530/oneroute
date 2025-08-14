@@ -128,8 +128,8 @@ router.get('/customer/shops', (req, res) => {
           c.name AS category_name,
           sc.name AS subcategory_name
         FROM products p
-        LEFT JOIN categories c ON p.category_id = c.id
-        LEFT JOIN subcategories sc ON p.subcategory_id = sc.id
+        LEFT JOIN categories c ON p.category = c.id
+        LEFT JOIN categories sc ON p.sub_category = sc.id
         WHERE p.vendor_id = ?
         ORDER BY p.id DESC
       `;
