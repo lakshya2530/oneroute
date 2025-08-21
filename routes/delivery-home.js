@@ -1,0 +1,219 @@
+const express = require('express');
+const router = express.Router();
+const db = require('../db/connection');
+const authenticate = require('../middleware/auth');
+
+
+router.get('/delivery-orders', authenticate, (req, res) => {
+  const assigned_to = req.user.id;
+  const now = new Date();
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const sql = `
+    SELECT 
+      o.*, 
+      p.name AS product_name, 
+      p.images, 
+      p.category,
+      u.full_name AS vendor_name
+    FROM orders o
+    JOIN products p ON o.product_id = p.id
+    JOIN users u ON o.assigned_to = u.id
+    WHERE o.assigned_to = ?
+    ORDER BY o.order_date DESC
+  `;
+
+  db.query(sql, [assigned_to], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const upcoming = [];
+    const past = [];
+    const today = [];
+
+    results.forEach(order => {
+      const deliveryDate = new Date(order.delivery_date || order.order_date);
+
+      const images = (() => {
+        try {
+          return JSON.parse(order.images || '[]').map(
+            img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
+          );
+        } catch (e) {
+          return [];
+        }
+      })();
+
+      const formattedOrder = {
+        ...order,
+        images,
+        product_name: order.product_name,
+        vendor_name: order.vendor_name,
+      };
+
+      if (deliveryDate >= todayStart && deliveryDate <= todayEnd) {
+        today.push(formattedOrder);
+      } else if (deliveryDate > todayEnd) {
+        upcoming.push(formattedOrder);
+      } else {
+        past.push(formattedOrder);
+      }
+    });
+
+    res.json({ today_orders: today, upcoming_orders: upcoming, past_orders: past });
+  });
+});
+
+
+router.get('/order/:order_id', authenticate, (req, res) => {
+  const order_id = req.params.order_id;
+  const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+
+  // Step 1: Get order details
+  const orderSql = `
+    SELECT 
+      o.*,
+      u.full_name AS customer_name,
+      u.phone AS customer_phone,
+      u.email AS customer_email
+    FROM orders o
+    JOIN users u ON o.customer_id = u.id
+    WHERE o.id = ?
+  `;
+
+  db.query(orderSql, [order_id], (err, orders) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (orders.length === 0) return res.status(404).json({ error: 'Order not found' });
+
+    const order = orders[0];
+
+    // Step 2: Get order items with product + vendor/shop info
+    const itemsSql = `
+      SELECT 
+        oi.id AS order_item_id,
+        oi.quantity,
+        oi.price,
+        p.id AS product_id,
+        p.name AS product_name,
+        p.images,
+        p.specifications,
+        vs.shop_name,
+        vs.description AS shop_description,
+        vs.shop_image
+      FROM order_items oi
+      JOIN products p ON oi.product_id = p.id
+      JOIN vendor_shops vs ON oi.vendor_id = vs.vendor_id
+      WHERE oi.order_id = ?
+    `;
+
+    db.query(itemsSql, [order_id], (err, items) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const formattedItems = items.map(item => ({
+        order_item_id: item.order_item_id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.price * item.quantity,
+        images: (() => {
+          try {
+            return JSON.parse(item.images || '[]').map(
+              img => `${baseUrl}/products/${img}`
+            );
+          } catch (e) {
+            return [];
+          }
+        })(),
+        specifications: (() => {
+          try {
+            return JSON.parse(item.specifications || '[]');
+          } catch (e) {
+            return [];
+          }
+        })(),
+        shop: {
+          name: item.shop_name,
+          description: item.shop_description,
+          shop_image: item.shop_image ? `${baseUrl}/shops/${item.shop_image}` : ''
+        }
+      }));
+
+      const totalAmount = formattedItems.reduce((sum, i) => sum + i.total, 0);
+
+      res.json({
+        order: {
+          ...order,
+          total_amount: totalAmount,
+          items: formattedItems
+        }
+      });
+    });
+  });
+
+  
+});
+
+
+router.post('/order/:order_id/feedback', authenticate, (req, res) => {
+  const order_id = req.params.order_id;
+  const delivery_partner_id = req.user.id; // must be delivery partner
+  const { rating, description } = req.body;
+
+  if (!rating) return res.status(400).json({ error: 'Rating is required' });
+
+  const feedbackData = {
+    order_id,
+    delivery_partner_id,
+    rating,
+    description
+  };
+
+  // Insert or update feedback
+  const sql = `
+    INSERT INTO order_feedback (order_id, delivery_partner_id, rating, description)
+    VALUES (?, ?, ?, ?)
+    ON DUPLICATE KEY UPDATE rating = VALUES(rating), description = VALUES(description)
+  `;
+
+  db.query(sql, [order_id, delivery_partner_id, rating, description], (err) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json({ message: 'Feedback submitted successfully' });
+  });
+});
+
+router.get('/wallet', authenticate, (req, res) => {
+  const user_id = req.user.id;
+
+  const walletSql = `SELECT id, balance FROM wallets WHERE user_id = ?`;
+  db.query(walletSql, [user_id], (err, wallets) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (wallets.length === 0) {
+      return res.json({ balance: 0, transactions: [] });
+    }
+
+    const wallet = wallets[0];
+
+    const txnSql = `
+      SELECT id, amount, type, description, created_at 
+      FROM wallet_transactions 
+      WHERE wallet_id = ? 
+      ORDER BY created_at DESC
+    `;
+
+    db.query(txnSql, [wallet.id], (err, transactions) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      res.json({
+        balance: wallet.balance,
+        transactions
+      });
+    });
+  });
+});
+
+
+module.exports = router;
