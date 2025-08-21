@@ -278,7 +278,7 @@ router.post('/check-gst-pan', (req, res) => {
 
 
   
-  router.get('/cms-page/privacy-policy', (req, res) => {
+  router.get('/delivery/cms-page/privacy-policy', (req, res) => {
     const { slug, user_type } = req.params;
     const sql = "SELECT * FROM cms_pages WHERE slug = 'privacy-policy' AND user_type = 'delivery'";
   
@@ -289,7 +289,7 @@ router.post('/check-gst-pan', (req, res) => {
     });
   });
 
-  router.get('/cms-page/terms-condition', (req, res) => {
+  router.get('/delivery/cms-page/terms-condition', (req, res) => {
     const { slug, user_type } = req.params;
     const sql = "SELECT * FROM cms_pages WHERE slug = 'terms-condition' AND user_type = 'delivery'";
   
