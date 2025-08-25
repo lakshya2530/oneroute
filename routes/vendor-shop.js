@@ -210,6 +210,109 @@ router.get('/vendor-orders', authenticate, (req, res) => {
     });
   });
   
+  router.get('/vendor-orders/:order_id', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+    const { order_id } = req.params;
+    const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+  
+    const sql = `
+      SELECT 
+        o.id AS order_id, 
+        o.order_number, 
+        o.status, 
+        o.order_date, 
+        c.id AS customer_id, 
+        c.full_name AS customer_name, 
+        c.mobile AS customer_mobile, 
+        oi.id AS item_id, 
+        oi.quantity, 
+        oi.price, 
+        p.id AS product_id, 
+        p.name AS product_name, 
+        p.images
+      FROM orders o
+      JOIN order_items oi ON o.id = oi.order_id
+      JOIN products p ON oi.product_id = p.id
+      JOIN users c ON o.customer_id = c.id
+      WHERE o.id = ? AND oi.vendor_id = ?
+    `;
+  
+    db.query(sql, [order_id, vendor_id], (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (results.length === 0) return res.status(404).json({ error: "Order not found" });
+  
+      const orderInfo = {
+        order_id: results[0].order_id,
+        order_number: results[0].order_number,
+        status: results[0].status,
+        order_date: results[0].order_date,
+        customer: {
+          id: results[0].customer_id,
+          name: results[0].customer_name,
+          mobile: results[0].customer_mobile
+        },
+        items: results.map(r => ({
+          item_id: r.item_id,
+          product_id: r.product_id,
+          product_name: r.product_name,
+          quantity: r.quantity,
+          price: r.price,
+          images: (() => {
+            try {
+              return JSON.parse(r.images || '[]').map(img => `${baseUrl}/products/${img}`);
+            } catch (e) {
+              return [];
+            }
+          })()
+        }))
+      };
+  
+      res.json(orderInfo);
+    });
+  });
+
+  router.post('/vendor-orders/:order_id/status', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+    const { order_id } = req.params;
+    const { status, cancel_reason } = req.body;
+  
+    // Allowed statuses
+    const allowedStatuses = ["accepted", "packed", "shipped", "delivered", "cancelled"];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+  
+    // Ensure vendor is authorized
+    const checkSql = `SELECT * FROM order_items WHERE order_id = ? AND vendor_id = ?`;
+    db.query(checkSql, [order_id, vendor_id], (err, items) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (items.length === 0) return res.status(403).json({ error: "Not authorized for this order" });
+  
+      let updateSql = `UPDATE orders SET status = ?`;
+      const values = [status, order_id];
+  
+      if (status === "cancelled") {
+        if (!cancel_reason || cancel_reason.trim() === "") {
+          return res.status(400).json({ error: "Cancel reason is required" });
+        }
+        updateSql = `UPDATE orders SET status = ?, cancel_reason = ? WHERE id = ?`;
+        values.splice(1, 0, cancel_reason); // insert cancel_reason in values
+      } else {
+        updateSql += ` WHERE id = ?`;
+      }
+  
+      db.query(updateSql, values, (err2) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+        res.json({ 
+          message: "Order status updated", 
+          order_id, 
+          new_status: status, 
+          cancel_reason: status === "cancelled" ? cancel_reason : undefined 
+        });
+      });
+    });
+  });
+  
 
   router.get('/vendor-analytics', authenticate, (req, res) => {
     const vendor_id = req.user.id;
