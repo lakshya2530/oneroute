@@ -578,9 +578,9 @@ router.post('/product-request-create', authenticate, (req, res) => {
   } = req.body;
 
   db.query(
-    `INSERT INTO product_request_sets (customer_id, request_title, request_description, min_price, max_price, estimated_delivery_days) 
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [customer_id, request_title, request_description, min_price, max_price, estimated_delivery_days],
+    `INSERT INTO product_request_sets (customer_id, request_title, request_description, min_price, max_price,category_id,subcategory_id, estimated_delivery_days) 
+     VALUES (?, ?, ?, ,?,?,?, ?, ?)`,
+    [customer_id, request_title, request_description, min_price, max_price,category_id,subcategory_id, estimated_delivery_days],
     (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
       const request_set_id = result.insertId;
