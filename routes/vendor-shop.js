@@ -223,7 +223,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
         o.order_date, 
         c.id AS customer_id, 
         c.full_name AS customer_name, 
-        c.mobile AS customer_mobile, 
+        c.phone AS customer_mobile, 
         oi.id AS item_id, 
         oi.quantity, 
         oi.price, 
