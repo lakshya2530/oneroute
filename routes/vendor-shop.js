@@ -349,7 +349,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
       SELECT prs.id AS request_set_id, prs.request_title, prs.request_description,
              prs.min_price, prs.max_price, prs.estimated_delivery_days,
              prs.category_id, prs.subcategory_id,
-             pr.id AS product_id, pr.product_title, pr.product_description, pr.image_urls
+             pr.id AS product_id, pr.product_title, pr.product_description, pr.images
       FROM product_request_sets prs
       JOIN product_request_items pr ON prs.id = pr.request_set_id
       JOIN users v ON v.id = ?
