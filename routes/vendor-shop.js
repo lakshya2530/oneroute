@@ -271,6 +271,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
     });
   });
 
+
   router.post('/vendor-orders/:order_id/status', authenticate, (req, res) => {
     const vendor_id = req.user.id;
     const { order_id } = req.params;
@@ -314,6 +315,95 @@ router.get('/vendor-orders', authenticate, (req, res) => {
   });
   
 
+  router.post('/product-request-set/:id/bid', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+    const { id: request_set_id } = req.params;
+    const { price, description, delivery_time_days, additional_requirements } = req.body;
+  
+    const sql = `
+      INSERT INTO product_bids 
+      (request_set_id, vendor_id, price, description, delivery_time_days, additional_requirements) 
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+  
+    db.query(
+      sql,
+      [request_set_id, vendor_id, price, description, delivery_time_days, additional_requirements],
+      (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+  
+        res.json({
+          message: "Bid placed successfully",
+          bid_id: result.insertId,
+          vendor_id,
+          request_set_id
+        });
+      }
+    );
+  });
+
+  router.get('/vendor/product-requests', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+  
+    const sql = `
+      SELECT prs.id AS request_set_id, prs.request_title, prs.request_description,
+             prs.min_price, prs.max_price, prs.estimated_delivery_days,
+             prs.category_id, prs.subcategory_id,
+             pr.id AS product_id, pr.product_title, pr.product_description, pr.image_urls
+      FROM product_request_sets prs
+      JOIN product_requests pr ON prs.id = pr.request_set_id
+      JOIN users v ON v.id = ?
+      WHERE prs.category_id = v.category_id
+        AND FIND_IN_SET(prs.subcategory_id, v.subcategory_ids)
+      ORDER BY prs.created_at DESC
+    `;
+  
+    db.query(sql, [vendor_id], (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+  
+      // Group by request_set
+      const requestMap = {};
+      results.forEach(row => {
+        if (!requestMap[row.request_set_id]) {
+          requestMap[row.request_set_id] = {
+            request_set_id: row.request_set_id,
+            request_title: row.request_title,
+            request_description: row.request_description,
+            min_price: row.min_price,
+            max_price: row.max_price,
+            estimated_delivery_days: row.estimated_delivery_days,
+            category_id: row.category_id,
+            subcategory_id: row.subcategory_id,
+            products: []
+          };
+        }
+        requestMap[row.request_set_id].products.push({
+          product_id: row.product_id,
+          product_title: row.product_title,
+          product_description: row.product_description,
+          image_urls: JSON.parse(row.image_urls || '[]')
+        });
+      });
+  
+      res.json(Object.values(requestMap));
+    });
+  });
+  
+
+  router.post('/vendor/save-categories', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+    const { category_id, subcategory_ids } = req.body; // [2,3,5]
+  
+    const subIds = subcategory_ids.join(','); 
+  
+    const sql = 'UPDATE users SET category_id = ?, subcategory_ids = ? WHERE id = ?';
+    db.query(sql, [category_id, subIds, vendor_id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ message: "Categories & Subcategories saved successfully" });
+    });
+  });
+  
+  
   router.get('/vendor-analytics', authenticate, (req, res) => {
     const vendor_id = req.user.id;
   

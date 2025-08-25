@@ -562,5 +562,125 @@ router.get('/home/sub-categories/:parentId', (req, res) => {
   });
 });
 
-  
+
+router.post('/product-request-create', authenticate, (req, res) => {
+  const customer_id = req.user.id;
+  const {
+    request_title,
+    request_description,
+    min_price,
+    max_price,
+    category_id,
+    subcategory_id,
+    type,
+    estimated_delivery_days,
+    products // array of {product_title, product_description, images[]}
+  } = req.body;
+
+  db.query(
+    `INSERT INTO product_request_sets (customer_id, request_title, request_description, min_price, max_price, estimated_delivery_days) 
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [customer_id, request_title, request_description, min_price, max_price, estimated_delivery_days],
+    (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      const request_set_id = result.insertId;
+
+      if (products && products.length > 0) {
+        const items = products.map(p => [
+          request_set_id,
+          p.product_title,
+          p.product_description,
+          JSON.stringify(p.images || [])
+        ]);
+        db.query(
+          `INSERT INTO product_request_items (request_set_id, product_title, product_description, images) VALUES ?`,
+          [items]
+        );
+      }
+
+      res.json({ message: "Product request set created", request_set_id });
+    }
+  );
+});
+
+router.get('/product-request-set/:id/bids', authenticate, (req, res) => {
+  const { id: request_set_id } = req.params;
+
+  db.query(
+    `SELECT pb.*, u.full_name AS vendor_name 
+     FROM product_bids pb
+     JOIN users u ON pb.vendor_id = u.id
+     WHERE pb.request_set_id = ? 
+     ORDER BY pb.price ASC`,
+    [request_set_id],
+    (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json(rows);
+    }
+  );
+});
+
+
+router.post('/product-request-set/:id/bid/:bid_id/status', authenticate, (req, res) => {
+  const { id: request_set_id, bid_id } = req.params;
+  const { status } = req.body; // accepted or rejected
+
+  if (!['accepted', 'rejected'].includes(status)) {
+    return res.status(400).json({ error: "Invalid status" });
+  }
+
+  db.query(`UPDATE product_bids SET status = ? WHERE id = ? AND request_set_id = ?`,
+    [status, bid_id, request_set_id],
+    (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      if (status === "accepted") {
+        db.query(`UPDATE product_request_sets SET status = 'in_progress' WHERE id = ?`, [request_set_id]);
+      }
+
+      res.json({ message: `Bid ${status}` });
+    });
+});
+
+
+router.get('/my-product-request-sets', authenticate, (req, res) => {
+  const customer_id = req.user.id;
+
+  const sql = `
+    SELECT prs.*, 
+      (SELECT COUNT(*) FROM product_bids pb WHERE pb.request_set_id = prs.id) AS total_bids
+    FROM product_request_sets prs
+    WHERE prs.customer_id = ?
+    ORDER BY prs.created_at DESC
+  `;
+
+  db.query(sql, [customer_id], (err, sets) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (!sets.length) return res.json([]);
+
+    const setIds = sets.map(s => s.id);
+
+    db.query(
+      `SELECT * FROM product_request_items WHERE request_set_id IN (?)`,
+      [setIds],
+      (err, items) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        const grouped = sets.map(set => ({
+          ...set,
+          products: items
+            .filter(i => i.request_set_id === set.id)
+            .map(i => ({
+              ...i,
+              images: (() => { try { return JSON.parse(i.images || "[]") } catch { return [] } })()
+            }))
+        }));
+
+        res.json(grouped);
+      }
+    );
+  });
+});
+
 module.exports = router;
