@@ -351,7 +351,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
              prs.category_id, prs.subcategory_id,
              pr.id AS product_id, pr.product_title, pr.product_description, pr.image_urls
       FROM product_request_sets prs
-      JOIN product_request_sets pr ON prs.id = pr.request_set_id
+      JOIN product_request_items pr ON prs.id = pr.request_set_id
       JOIN users v ON v.id = ?
       WHERE prs.category_id = v.category_id
         AND FIND_IN_SET(prs.subcategory_id, v.subcategory_ids)
