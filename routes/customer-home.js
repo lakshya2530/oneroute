@@ -466,7 +466,8 @@ router.get('/customer/shops', (req, res) => {
   router.get('/customer-orders', authenticate, (req, res) => {
     const customer_id = req.user.id;
     const now = new Date();
-  
+    const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+
     const sql = `
       SELECT 
         o.*, 
@@ -489,11 +490,12 @@ router.get('/customer/shops', (req, res) => {
   
       results.forEach(order => {
        // order.delivery_date
-        const deliveryDate = new Date(order.delivery_date || order.order_date);
+        const deliveryDate = new Date(order.order_date || order.delivery_date);
         const images = (() => {
           try {
             return JSON.parse(order.images || '[]').map(
-              img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
+                img => `${baseUrl}/${img}`
+             // img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
             );
           } catch (e) {
             return [];
