@@ -509,7 +509,7 @@ router.get('/customer/shops', (req, res) => {
           vendor_name: order.vendor_name,
         };
   
-        if (deliveryDate >= now) {
+        if (deliveryDate > now) {
           upcoming.push(formattedOrder);
         } else {
           past.push(formattedOrder);
