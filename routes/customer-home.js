@@ -470,12 +470,13 @@ router.get('/customer/shops', (req, res) => {
 
     const sql = `
       SELECT 
-        o.order_number,o.status as order_status,o.order_date,o.product_id,o.customer_id,o.vendor_id,o.assigned_to,
+        o.order_number,o.status as order_status,o.order_date,o.product_id,o.customer_id,o.vendor_id,o.assigned_to,ot.price,
         p.name AS product_name, 
         p.images, 
         p.category,
         u.full_name AS vendor_name
       FROM orders o
+      JOIN order_items ot ON o.id = ot.order_id
       JOIN products p ON o.product_id = p.id
       JOIN users u ON o.vendor_id = u.id
       WHERE o.customer_id = ?
