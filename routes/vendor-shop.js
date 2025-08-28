@@ -469,6 +469,65 @@ router.post('/product-bids/:bid_id/withdraw', authenticate, (req, res) => {
 });
 
 
+router.get('/vendor/my-bids', authenticate, (req, res) => {
+  const vendor_id = req.user.id;
+
+  const sql = `
+    SELECT pb.id AS bid_id, pb.price, pb.description, pb.delivery_time, pb.additional_requirements,
+           prs.id AS request_set_id, prs.request_title, prs.request_description,
+           prs.min_price, prs.max_price, prs.estimated_delivery_days,
+           prs.category_id, prs.subcategory_id,
+           pr.id AS product_id, pr.product_title, pr.product_description, pr.images
+    FROM product_bids pb
+    JOIN product_request_sets prs ON pb.request_set_id = prs.id
+    JOIN product_request_items pr ON prs.id = pr.request_set_id
+    WHERE pb.vendor_id = ?
+    ORDER BY pb.created_at DESC
+  `;
+
+  db.query(sql, [vendor_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const bidMap = {};
+    results.forEach(row => {
+      if (!bidMap[row.bid_id]) {
+        bidMap[row.bid_id] = {
+          bid_id: row.bid_id,
+          price: row.price,
+          description: row.description,
+          delivery_time: row.delivery_time,
+          additional_requirements: row.additional_requirements,
+          request_set_id: row.request_set_id,
+          request_title: row.request_title,
+          request_description: row.request_description,
+          min_price: row.min_price,
+          max_price: row.max_price,
+          estimated_delivery_days: row.estimated_delivery_days,
+          category_id: row.category_id,
+          subcategory_id: row.subcategory_id,
+          products: []
+        };
+      }
+      bidMap[row.bid_id].products.push({
+        product_id: row.product_id,
+        product_title: row.product_title,
+        product_description: row.product_description,
+        images: (() => {
+          try {
+            return JSON.parse(row.images || "[]");
+          } catch {
+            return [];
+          }
+        })()
+      });
+    });
+
+    res.json(Object.values(bidMap));
+  });
+});
+
+
+
   router.post('/vendor/save-categories', authenticate, (req, res) => {
     const vendor_id = req.user.id;
     const { category_id, subcategory_ids } = req.body; // [2,3,5]
