@@ -660,9 +660,13 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
 
   db.query(sql, [customer_id], (err, sets) => {
     if (err) return res.status(500).json({ error: err.message });
+
+    console.log("SETS:", sets); // 👈 check if sets have correct IDs
+
     if (!sets.length) return res.json([]);
 
     const setIds = sets.map(s => s.id);
+    console.log("SET IDS:", setIds); // 👈 check if array is not empty
 
     db.query(
       `SELECT * FROM product_request_items WHERE request_set_id IN (?)`,
@@ -670,10 +674,12 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
       (err, items) => {
         if (err) return res.status(500).json({ error: err.message });
 
+        console.log("ITEMS:", items); // 👈 check if DB returned anything
+
         const grouped = sets.map(set => ({
           ...set,
           products: items
-            .filter(i => i.request_set_id === set.id)
+            .filter(i => Number(i.request_set_id) === Number(set.id)) // 👈 force number match
             .map(i => {
               let imgs = [];
               try {
