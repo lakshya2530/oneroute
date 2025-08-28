@@ -342,6 +342,29 @@ router.get('/vendor-orders', authenticate, (req, res) => {
     );
   });
 
+  // Withdraw a vendor bid
+router.post('/product-bids/:bid_id/withdraw', authenticate, (req, res) => {
+  const vendor_id = req.user.id;
+  const { bid_id } = req.params;
+
+  const sql = `
+    UPDATE product_bids 
+    SET status = 'withdrawn' 
+    WHERE id = ? AND vendor_id = ?
+  `;
+
+  db.query(sql, [bid_id, vendor_id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    if (result.affectedRows === 0) {
+      return res.status(400).json({ error: "Bid not found or already withdrawn" });
+    }
+
+    res.json({ message: "Bid withdrawn successfully" });
+  });
+});
+
+
   router.get('/vendor/product-requests', authenticate, (req, res) => {
     const vendor_id = req.user.id;
   
