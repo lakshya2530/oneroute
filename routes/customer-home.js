@@ -705,6 +705,76 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
 });
 
 
+router.post('/bids/:bid_id/chat', authenticate, (req, res) => {
+  const sender_id = req.user.id;
+  const { bid_id } = req.params;
+  const { receiver_id, message } = req.body;
+
+  if (!message || !receiver_id) {
+    return res.status(400).json({ error: "Message and receiver_id required" });
+  }
+
+  const sql = `INSERT INTO chat_messages (bid_id, sender_id, receiver_id, message) 
+               VALUES (?, ?, ?, ?)`;
+  db.query(sql, [bid_id, sender_id, receiver_id, message], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    res.json({
+      chat_id: result.insertId,
+      bid_id,
+      sender_id,
+      receiver_id,
+      message,
+      created_at: new Date()
+    });
+  });
+});
+
+
+router.get('/bids/:bid_id/chat', authenticate, (req, res) => {
+  const { bid_id } = req.params;
+
+  const sql = `
+    SELECT cm.*, u.full_name AS sender_name
+    FROM chat_messages cm
+    JOIN users u ON cm.sender_id = u.id
+    WHERE cm.bid_id = ?
+    ORDER BY cm.created_at ASC
+  `;
+
+  db.query(sql, [bid_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    res.json(results);
+  });
+});
+
+
+router.get('/my-chats', authenticate, (req, res) => {
+  const user_id = req.user.id;
+
+  const sql = `
+    SELECT cm.bid_id, prs.request_title, pb.vendor_id, pb.id AS bid_id,
+           (SELECT message FROM chat_messages 
+            WHERE bid_id = cm.bid_id ORDER BY created_at DESC LIMIT 1) AS last_message,
+           (SELECT created_at FROM chat_messages 
+            WHERE bid_id = cm.bid_id ORDER BY created_at DESC LIMIT 1) AS last_time
+    FROM chat_messages cm
+    JOIN product_bids pb ON cm.bid_id = pb.id
+    JOIN product_request_sets prs ON pb.request_set_id = prs.id
+    WHERE cm.sender_id = ? OR cm.receiver_id = ?
+    GROUP BY cm.bid_id
+    ORDER BY last_time DESC
+  `;
+
+  db.query(sql, [user_id, user_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    res.json(results);
+  });
+});
+
+
 
 
 module.exports = router;
