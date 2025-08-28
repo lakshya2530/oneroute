@@ -521,6 +521,71 @@ router.get('/customer/shops', (req, res) => {
     });
   });
   
+  router.get('/customer-orders/:order_id', authenticate, (req, res) => {
+    const customer_id = req.user.id;
+    const { order_id } = req.params;
+    const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+  
+    const sql = `
+      SELECT 
+        o.order_number, o.id AS order_id, o.status AS order_status, 
+        o.order_date, o.customer_id, o.vendor_id, o.assigned_to, 
+        oi.price, oi.quantity,
+        p.name AS product_name, p.description AS product_description,
+        p.images, p.category, 
+        u.full_name AS vendor_name, u.mobile AS vendor_mobile
+      FROM orders o
+      JOIN order_items oi ON o.id = oi.order_id
+      JOIN products p ON oi.product_id = p.id
+      JOIN users u ON o.vendor_id = u.id
+      WHERE o.id = ? AND o.customer_id = ?
+    `;
+  
+    db.query(sql, [order_id, customer_id], (err, results) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (!results.length) return res.status(404).json({ error: "Order not found" });
+  
+      // format images
+      const orderItems = results.map(item => {
+        const images = (() => {
+          try {
+            return JSON.parse(item.images || '[]').map(
+              img => `${baseUrl}/products/${img}`
+            );
+          } catch {
+            return [];
+          }
+        })();
+  
+        return {
+          product_id: item.product_id,
+          product_name: item.product_name,
+          product_description: item.product_description,
+          price: item.price,
+          quantity: item.quantity,
+          category: item.category,
+          images
+        };
+      });
+  
+      // single order response
+      const orderDetail = {
+        order_id: results[0].order_id,
+        order_number: results[0].order_number,
+        status: results[0].order_status,
+        order_date: results[0].order_date,
+        vendor: {
+          vendor_id: results[0].vendor_id,
+          vendor_name: results[0].vendor_name,
+          vendor_mobile: results[0].vendor_mobile
+        },
+        items: orderItems
+      };
+  
+      res.json(orderDetail);
+    });
+  });
+  
 
   // GET /categories
 router.get('/home/categories', (req, res) => {
