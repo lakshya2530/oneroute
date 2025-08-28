@@ -659,12 +659,9 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
 
   db.query(sql, [customer_id], (err, sets) => {
     if (err) return res.status(500).json({ error: err.message });
-
     if (!sets.length) return res.json([]);
 
     const setIds = sets.map(s => s.id);
-    console.log("SETS:", sets);
-    console.log("SET IDS:", setIds);
 
     db.query(
       `SELECT * FROM product_request_items WHERE request_set_id IN (?)`,
@@ -672,20 +669,31 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
       (err, items) => {
         if (err) return res.status(500).json({ error: err.message });
 
-        console.log("ITEMS:", items);
-
         const grouped = sets.map(set => ({
           ...set,
           products: items
             .filter(i => i.request_set_id === set.id)
             .map(i => ({
               ...i,
-              images: (() => { 
-                try { 
-                  return JSON.parse(i.images || "[]").map(img => `${req.protocol}://${req.get('host')}/uploads/requests/${img}`); 
-                } catch { 
-                  return []; 
-                } 
+              images: (() => {
+                try {
+                  if (!i.images) return [];
+                  let imgs = i.images;
+
+                  // Convert Buffer → string
+                  if (Buffer.isBuffer(imgs)) imgs = imgs.toString();
+
+                  // If string, parse JSON
+                  if (typeof imgs === "string") {
+                    imgs = JSON.parse(imgs);
+                  }
+
+                  // Ensure it's an array
+                  return Array.isArray(imgs) ? imgs : [];
+                } catch (e) {
+                  console.error("Image parse error:", e, i.images);
+                  return [];
+                }
               })()
             }))
         }));
@@ -695,6 +703,7 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
     );
   });
 });
+
 
 
 
