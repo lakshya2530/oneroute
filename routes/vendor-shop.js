@@ -188,7 +188,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
     const now = new Date();
   
     const sql = `
-      SELECT o.*,oi.price as order_price, p.name AS product_name, c.full_name AS customer_name
+      SELECT o.*,o.id as order_id,oi.price as order_price, p.name AS product_name, c.full_name AS customer_name
       FROM orders o
       JOIN order_items oi ON o.id = oi.order_id
       JOIN products p ON o.product_id = p.id
