@@ -533,7 +533,7 @@ router.get('/customer/shops', (req, res) => {
         oi.price, oi.quantity,
         p.name AS product_name, p.description AS product_description,
         p.images, p.category, 
-        u.full_name AS vendor_name, u.mobile AS vendor_mobile
+        u.full_name AS vendor_name, u.phone AS vendor_mobile
       FROM orders o
       JOIN order_items oi ON o.id = oi.order_id
       JOIN products p ON oi.product_id = p.id
