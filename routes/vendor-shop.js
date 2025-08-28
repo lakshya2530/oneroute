@@ -365,53 +365,109 @@ router.post('/product-bids/:bid_id/withdraw', authenticate, (req, res) => {
 });
 
 
+  // router.get('/vendor/product-requests', authenticate, (req, res) => {
+  //   const vendor_id = req.user.id;
+  
+  //   const sql = `
+  //     SELECT prs.id AS request_set_id, prs.request_title, prs.request_description,
+  //            prs.min_price, prs.max_price, prs.estimated_delivery_days,
+  //            prs.category_id, prs.subcategory_id,
+  //            pr.id AS product_id, pr.product_title, pr.product_description, pr.images
+  //     FROM product_request_sets prs
+  //     JOIN product_request_items pr ON prs.id = pr.request_set_id
+  //     JOIN users v ON v.id = ?
+  //     WHERE prs.category_id = v.category_id
+  //       AND FIND_IN_SET(prs.subcategory_id, v.subcategory_ids)
+  //     ORDER BY prs.created_at DESC
+  //   `;
+  
+  //   db.query(sql, [vendor_id], (err, results) => {
+  //     if (err) return res.status(500).json({ error: err.message });
+  
+  //     // Group by request_set
+  //     const requestMap = {};
+  //     results.forEach(row => {
+  //       if (!requestMap[row.request_set_id]) {
+  //         requestMap[row.request_set_id] = {
+  //           request_set_id: row.request_set_id,
+  //           request_title: row.request_title,
+  //           request_description: row.request_description,
+  //           min_price: row.min_price,
+  //           max_price: row.max_price,
+  //           estimated_delivery_days: row.estimated_delivery_days,
+  //           category_id: row.category_id,
+  //           subcategory_id: row.subcategory_id,
+  //           products: []
+  //         };
+  //       }
+  //       requestMap[row.request_set_id].products.push({
+  //         product_id: row.product_id,
+  //         product_title: row.product_title,
+  //         product_description: row.product_description,
+  //         images: JSON.parse(row.images || '[]')
+  //       });
+  //     });
+  
+  //     res.json(Object.values(requestMap));
+  //   });
+  // });
+  
   router.get('/vendor/product-requests', authenticate, (req, res) => {
-    const vendor_id = req.user.id;
-  
-    const sql = `
-      SELECT prs.id AS request_set_id, prs.request_title, prs.request_description,
-             prs.min_price, prs.max_price, prs.estimated_delivery_days,
-             prs.category_id, prs.subcategory_id,
-             pr.id AS product_id, pr.product_title, pr.product_description, pr.images
-      FROM product_request_sets prs
-      JOIN product_request_items pr ON prs.id = pr.request_set_id
-      JOIN users v ON v.id = ?
-      WHERE prs.category_id = v.category_id
-        AND FIND_IN_SET(prs.subcategory_id, v.subcategory_ids)
-      ORDER BY prs.created_at DESC
-    `;
-  
-    db.query(sql, [vendor_id], (err, results) => {
-      if (err) return res.status(500).json({ error: err.message });
-  
-      // Group by request_set
-      const requestMap = {};
-      results.forEach(row => {
-        if (!requestMap[row.request_set_id]) {
-          requestMap[row.request_set_id] = {
-            request_set_id: row.request_set_id,
-            request_title: row.request_title,
-            request_description: row.request_description,
-            min_price: row.min_price,
-            max_price: row.max_price,
-            estimated_delivery_days: row.estimated_delivery_days,
-            category_id: row.category_id,
-            subcategory_id: row.subcategory_id,
-            products: []
-          };
-        }
-        requestMap[row.request_set_id].products.push({
-          product_id: row.product_id,
-          product_title: row.product_title,
-          product_description: row.product_description,
-          image_urls: JSON.parse(row.image_urls || '[]')
-        });
+  const vendor_id = req.user.id;
+
+  const sql = `
+    SELECT prs.id AS request_set_id, prs.request_title, prs.request_description,
+           prs.min_price, prs.max_price, prs.estimated_delivery_days,
+           prs.category_id, prs.subcategory_id,
+           pr.id AS product_id, pr.product_title, pr.product_description, pr.images,
+           IF(pb.id IS NOT NULL, 1, 0) AS already_bid
+    FROM product_request_sets prs
+    JOIN product_request_items pr ON prs.id = pr.request_set_id
+    JOIN users v ON v.id = ?
+    LEFT JOIN product_bids pb 
+           ON pb.request_set_id = prs.id AND pb.vendor_id = v.id
+    WHERE prs.category_id = v.category_id
+      AND FIND_IN_SET(prs.subcategory_id, v.subcategory_ids)
+    ORDER BY prs.created_at DESC
+  `;
+
+  db.query(sql, [vendor_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const requestMap = {};
+    results.forEach(row => {
+      if (!requestMap[row.request_set_id]) {
+        requestMap[row.request_set_id] = {
+          request_set_id: row.request_set_id,
+          request_title: row.request_title,
+          request_description: row.request_description,
+          min_price: row.min_price,
+          max_price: row.max_price,
+          estimated_delivery_days: row.estimated_delivery_days,
+          category_id: row.category_id,
+          subcategory_id: row.subcategory_id,
+          already_bid: !!row.already_bid,
+          products: []
+        };
+      }
+      requestMap[row.request_set_id].products.push({
+        product_id: row.product_id,
+        product_title: row.product_title,
+        product_description: row.product_description,
+        images: (() => {
+          try {
+            return JSON.parse(row.images || "[]");
+          } catch {
+            return [];
+          }
+        })()
       });
-  
-      res.json(Object.values(requestMap));
     });
+
+    res.json(Object.values(requestMap));
   });
-  
+});
+
 
   router.post('/vendor/save-categories', authenticate, (req, res) => {
     const vendor_id = req.user.id;
