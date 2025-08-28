@@ -648,6 +648,7 @@ router.post('/product-request-set/:id/bid/:bid_id/status', authenticate, (req, r
 
 router.get('/my-product-request-sets', authenticate, (req, res) => {
   const customer_id = req.user.id;
+  const baseUrl = `${req.protocol}://${req.get('host')}/uploads/requests`;
 
   const sql = `
     SELECT prs.*, 
@@ -659,7 +660,6 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
 
   db.query(sql, [customer_id], (err, sets) => {
     if (err) return res.status(500).json({ error: err.message });
-
     if (!sets.length) return res.json([]);
 
     const setIds = sets.map(s => s.id);
@@ -674,10 +674,20 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
           ...set,
           products: items
             .filter(i => i.request_set_id === set.id)
-            .map(i => ({
-              ...i,
-              images: (() => { try { return JSON.parse(i.images || "[]") } catch { return [] } })()
-            }))
+            .map(i => {
+              let imgs = [];
+              try {
+                imgs = JSON.parse(i.images || "[]");
+                if (!Array.isArray(imgs)) imgs = [];
+              } catch {
+                imgs = [];
+              }
+
+              return {
+                ...i,
+                images: imgs.map(img => `${baseUrl}/${img}`)
+              };
+            })
         }));
 
         res.json(grouped);
@@ -685,5 +695,6 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
     );
   });
 });
+
 
 module.exports = router;
