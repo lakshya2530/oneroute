@@ -470,7 +470,7 @@ router.get('/customer/shops', (req, res) => {
 
     const sql = `
       SELECT 
-        o.order_number,o.status as order_status,o.order_date,o.product_id,o.customer_id,o.vendor_id,o.assigned_to,ot.price,
+        o.order_number,o.id as order_id,o.status as order_status,o.order_date,o.product_id,o.customer_id,o.vendor_id,o.assigned_to,ot.price,
         p.name AS product_name, 
         p.images, 
         p.category,
