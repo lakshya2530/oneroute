@@ -495,7 +495,7 @@ router.get('/customer/shops', (req, res) => {
         const images = (() => {
           try {
             return JSON.parse(order.images || '[]').map(
-                img => `${baseUrl}/${img}`
+                img => `${baseUrl}/'products'/${img}`
              // img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
             );
           } catch (e) {
