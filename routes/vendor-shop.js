@@ -571,40 +571,147 @@ router.get('/vendor/my-bids', authenticate, (req, res) => {
     });
   });
   
-  router.post('/create-service', (req, res) => {
-    const { sub_category_id, service_description, price, approx_time, vendor_id } = req.body;
+//   router.post('/create-service', (req, res) => {
+//     const { sub_category_id, service_description, price, approx_time, vendor_id } = req.body;
 
-    if (!sub_category_id || !service_description || !price || !approx_time || !vendor_id) {
-        return res.status(400).json({ error: 'All fields are required' });
-    }
+//     if (!sub_category_id || !service_description || !price || !approx_time || !vendor_id) {
+//         return res.status(400).json({ error: 'All fields are required' });
+//     }
 
     
-    // 1. Get the service name from subcategory
-    const subCategoryQuery = 'SELECT name FROM service_subcategories WHERE id = ?';
-    db.query(subCategoryQuery, [sub_category_id], (err, subResults) => {
-        if (err) return res.status(500).json({ error: 'Database error' });
-        if (subResults.length === 0) return res.status(404).json({ error: 'Subcategory not found' });
+//     // 1. Get the service name from subcategory
+//     const subCategoryQuery = 'SELECT name FROM service_subcategories WHERE id = ?';
+//     db.query(subCategoryQuery, [sub_category_id], (err, subResults) => {
+//         if (err) return res.status(500).json({ error: 'Database error' });
+//         if (subResults.length === 0) return res.status(404).json({ error: 'Subcategory not found' });
 
-        const service_name = subResults[0].name;
+//         const service_name = subResults[0].name;
 
-        // 2. Insert into services table
-        const insertQuery = `INSERT INTO services 
-            (sub_category_id, service_name, service_description, price, approx_time, vendor_id)
-            VALUES (?, ?, ?, ?, ?, ?)`;
+//         // 2. Insert into services table
+//         const insertQuery = `INSERT INTO services 
+//             (sub_category_id, service_name, service_description, price, approx_time, vendor_id)
+//             VALUES (?, ?, ?, ?, ?, ?)`;
 
-        const values = [sub_category_id, service_name, service_description, price, approx_time, vendor_id];
+//         const values = [sub_category_id, service_name, service_description, price, approx_time, vendor_id];
 
-        db.query(insertQuery, values, (err2, result) => {
-            if (err2) return res.status(500).json({ error: 'Failed to create service' });
+//         db.query(insertQuery, values, (err2, result) => {
+//             if (err2) return res.status(500).json({ error: 'Failed to create service' });
 
-            res.json({
-                message: 'Service created successfully',
-                service_id: result.insertId,
-                service_name,
-            });
+//             res.json({
+//                 message: 'Service created successfully',
+//                 service_id: result.insertId,
+//                 service_name,
+//             });
+//         });
+//     });
+// });
+
+// router.get('/services-list', (req, res) => {
+//   const { vendor_id } = req.query;
+
+//   let sql = `
+//     SELECT 
+//       s.id AS service_id,
+//       s.service_name,
+//       s.service_description,
+//       s.price,
+//       s.approx_time,
+//       s.vendor_id,
+//       sc.name AS subcategory_name,
+//       sc.image AS subcategory_image
+//     FROM services s
+//     LEFT JOIN service_subcategories sc ON s.sub_category_id = sc.id
+//     WHERE 1=1
+//   `;
+
+//   const params = [];
+
+//   if (vendor_id) {
+//     sql += ' AND s.vendor_id = ?';
+//     params.push(vendor_id);
+//   }
+
+//   sql += ' ORDER BY s.id DESC';
+
+//   db.query(sql, params, (err, results) => {
+//     if (err) return res.status(500).json({ error: 'Database error', details: err });
+//     res.json({
+//       status: true,
+//       message: 'Services fetched successfully',
+//       data: results,
+//     });
+//   });
+// });
+
+router.post('/create-service', (req, res) => {
+  const { 
+    sub_category_id, 
+    service_description, 
+    price, 
+    approx_time, 
+    vendor_id,
+    service_type,   // "one_time" or "scheduled"
+    location,       // "onsite", "customer_site", "google_meet"
+    meet_link,      // required if google_meet
+    slots           // array of { date: "YYYY-MM-DD", time: "HH:MM:SS" }
+  } = req.body;
+
+  // Validate
+  if (!sub_category_id || !service_description || !price || !approx_time || !vendor_id || !service_type || !location) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  if (location === "google_meet" && !meet_link) {
+    return res.status(400).json({ error: 'Meet link required for Google Meet location' });
+  }
+
+  // 1. Get service name from subcategory
+  const subCategoryQuery = 'SELECT name FROM service_subcategories WHERE id = ?';
+  db.query(subCategoryQuery, [sub_category_id], (err, subResults) => {
+    if (err) return res.status(500).json({ error: 'Database error' });
+    if (subResults.length === 0) return res.status(404).json({ error: 'Subcategory not found' });
+
+    const service_name = subResults[0].name;
+
+    // 2. Insert into services
+    const insertQuery = `
+      INSERT INTO services 
+        (sub_category_id, service_name, service_description, price, approx_time, vendor_id, service_type, location, meet_link)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+
+    const values = [sub_category_id, service_name, service_description, price, approx_time, vendor_id, service_type, location, meet_link || null];
+
+    db.query(insertQuery, values, (err2, result) => {
+      if (err2) return res.status(500).json({ error: 'Failed to create service' });
+
+      const service_id = result.insertId;
+
+      // 3. If scheduled → insert slots
+      if (service_type === "scheduled" && Array.isArray(slots) && slots.length > 0) {
+        const slotValues = slots.map(s => [service_id, s.date, s.time]);
+        const slotQuery = `INSERT INTO service_slots (service_id, slot_date, slot_time) VALUES ?`;
+
+        db.query(slotQuery, [slotValues], (err3) => {
+          if (err3) return res.status(500).json({ error: 'Failed to save slots' });
+
+          return res.json({
+            message: 'Service created successfully with slots',
+            service_id,
+            service_name,
+          });
         });
+      } else {
+        return res.json({
+          message: 'Service created successfully',
+          service_id,
+          service_name,
+        });
+      }
     });
+  });
 });
+
 
 router.get('/services-list', (req, res) => {
   const { vendor_id } = req.query;
@@ -617,6 +724,9 @@ router.get('/services-list', (req, res) => {
       s.price,
       s.approx_time,
       s.vendor_id,
+      s.service_type,
+      s.location,
+      s.meet_link,
       sc.name AS subcategory_name,
       sc.image AS subcategory_image
     FROM services s
@@ -625,22 +735,45 @@ router.get('/services-list', (req, res) => {
   `;
 
   const params = [];
-
   if (vendor_id) {
     sql += ' AND s.vendor_id = ?';
     params.push(vendor_id);
   }
-
   sql += ' ORDER BY s.id DESC';
 
   db.query(sql, params, (err, results) => {
     if (err) return res.status(500).json({ error: 'Database error', details: err });
-    res.json({
-      status: true,
-      message: 'Services fetched successfully',
-      data: results,
+
+    if (results.length === 0) {
+      return res.json({ status: true, message: 'No services found', data: [] });
+    }
+
+    // Get slots for scheduled services
+    const serviceIds = results.map(r => r.service_id);
+    const slotQuery = `SELECT * FROM service_slots WHERE service_id IN (?)`;
+
+    db.query(slotQuery, [serviceIds], (err2, slotResults) => {
+      if (err2) return res.status(500).json({ error: 'Failed to fetch slots' });
+
+      const slotsMap = {};
+      slotResults.forEach(slot => {
+        if (!slotsMap[slot.service_id]) slotsMap[slot.service_id] = [];
+        slotsMap[slot.service_id].push({ date: slot.slot_date, time: slot.slot_time });
+      });
+
+      const finalResults = results.map(service => ({
+        ...service,
+        slots: service.service_type === "scheduled" ? (slotsMap[service.service_id] || []) : []
+      }));
+
+      res.json({
+        status: true,
+        message: 'Services fetched successfully',
+        data: finalResults,
+      });
     });
   });
 });
+
 
 module.exports = router;
