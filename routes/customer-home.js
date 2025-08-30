@@ -770,6 +770,100 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
 });
 
 
+router.post('/book-service', authenticate, (req, res) => {
+  const { service_id, slot_id, address_id } = req.body;
+  const customer_id = req.user.id; // from JWT
+
+  if (!service_id || !slot_id || !address_id) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  const slotCheckQuery = `
+    SELECT * FROM service_slots 
+    WHERE id = ? AND service_id = ?
+  `;
+  db.query(slotCheckQuery, [slot_id, service_id], (err, slotResults) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (slotResults.length === 0) {
+      return res.status(400).json({ error: 'Invalid slot for this service' });
+    }
+
+    const bookingCheck = `
+      SELECT * FROM bookings 
+      WHERE slot_id = ? AND status != "cancelled"
+    `;
+    db.query(bookingCheck, [slot_id], (err2, booked) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      if (booked.length > 0) {
+        return res.status(400).json({ error: 'Slot already booked' });
+      }
+
+      const insertBooking = `
+        INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status)
+        VALUES (?, ?, ?, ?, 'pending')
+      `;
+      db.query(insertBooking, [customer_id, service_id, slot_id, address_id], (err3, result) => {
+        if (err3) return res.status(500).json({ error: err3.message });
+
+        res.json({
+          status: true,
+          message: 'Service booked successfully',
+          booking_id: result.insertId,
+          status_value: 'pending'
+        });
+      });
+    });
+  });
+});
+
+
+
+router.post('/add-address', authenticate, (req, res) => {
+  const { name, description } = req.body;
+  const customer_id = req.user.id;
+
+  if (!name || !description) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  const sql = `
+    INSERT INTO customer_addresses (customer_id, name, description)
+    VALUES (?, ?, ?)
+  `;
+  db.query(sql, [customer_id, name, description], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    res.json({
+      status: true,
+      message: 'Address added successfully',
+      address_id: result.insertId
+    });
+  });
+});
+
+
+
+router.get('/list-addresses', authenticate, (req, res) => {
+  const customer_id = req.user.id;
+
+  const sql = `
+    SELECT id, name, description, created_at 
+    FROM customer_addresses 
+    WHERE customer_id = ? 
+    ORDER BY id DESC
+  `;
+  db.query(sql, [customer_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    res.json({
+      status: true,
+      message: 'Addresses fetched successfully',
+      data: results
+    });
+  });
+});
+
+
 router.post('/bids/:bid_id/chat', authenticate, (req, res) => {
   const sender_id = req.user.id;
   const { bid_id } = req.params;
@@ -838,6 +932,9 @@ router.get('/my-chats', authenticate, (req, res) => {
     res.json(results);
   });
 });
+
+
+
 
 
 
