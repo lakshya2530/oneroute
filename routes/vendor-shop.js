@@ -757,7 +757,7 @@ router.get('/services-list', (req, res) => {
       const slotsMap = {};
       slotResults.forEach(slot => {
         if (!slotsMap[slot.service_id]) slotsMap[slot.service_id] = [];
-        slotsMap[slot.service_id].push({ date: slot.slot_date, time: slot.slot_time });
+        slotsMap[slot.service_id].push({id:slot.id, date: slot.slot_date, time: slot.slot_time });
       });
 
       const finalResults = results.map(service => ({
