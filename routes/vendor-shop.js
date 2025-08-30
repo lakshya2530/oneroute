@@ -731,7 +731,6 @@ router.get('/services-list', (req, res) => {
       sc.image AS subcategory_image
     FROM services s
     LEFT JOIN service_subcategories sc ON s.sub_category_id = sc.id
-    WHERE 1=1
   `;
 
   const params = [];
