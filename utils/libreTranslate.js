@@ -1,6 +1,7 @@
 const axios = require("axios");
+const LIBRE_API = "https://libretranslate.com/translate";
 
-const LIBRE_API = "http://127.0.0.1:5000/translate"; 
+//const LIBRE_API = "http://127.0.0.1:5000/translate"; 
 // or "https://libretranslate.com/translate"
 
 async function translateText(text, sourceLang, targetLang) {
