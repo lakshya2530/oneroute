@@ -1050,7 +1050,6 @@ router.post('/book-service', authenticate, (req, res) => {
 //   });
 // });
 
-
 router.get('/customer/bookings', authenticate, (req, res) => {
   const customer_id = req.user.id;
   const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
@@ -1060,7 +1059,7 @@ router.get('/customer/bookings', authenticate, (req, res) => {
       b.id AS booking_id,
       b.status,
       b.created_at,
-      b.slot_id, -- JSON array
+      b.slot_id, -- JSON or stringified array
       s.service_name,
       s.service_description,
       s.price,
@@ -1078,6 +1077,7 @@ router.get('/customer/bookings', authenticate, (req, res) => {
 
   db.query(sql, [customer_id], async (err, bookings) => {
     if (err) return res.status(500).json({ error: err.message });
+
     if (!bookings.length) {
       return res.json({
         status: true,
@@ -1086,18 +1086,29 @@ router.get('/customer/bookings', authenticate, (req, res) => {
       });
     }
 
-    // Process each booking
+    // Process each booking and fetch slots
     const promises = bookings.map(booking => {
       return new Promise((resolve, reject) => {
         let slotIds = [];
+
+        // Ensure slot_id is parsed properly
         try {
-          slotIds = JSON.parse(booking.slot_id);
+          if (typeof booking.slot_id === 'string') {
+            slotIds = JSON.parse(booking.slot_id); // string -> array
+          } else {
+            slotIds = booking.slot_id; // already JSON type
+          }
+
+          // Make sure it’s an array of integers
+          if (!Array.isArray(slotIds)) slotIds = [];
+          slotIds = slotIds.map(id => parseInt(id));
         } catch (e) {
           slotIds = [];
         }
 
         if (slotIds.length === 0) {
           booking.slots = [];
+          delete booking.slot_id;
           return resolve(booking);
         }
 
@@ -1108,8 +1119,9 @@ router.get('/customer/bookings', authenticate, (req, res) => {
         `;
         db.query(slotSql, [slotIds], (err2, slotResults) => {
           if (err2) return reject(err2);
-          booking.slots = slotResults; // attach all slot details
-          delete booking.slot_id; // remove raw JSON field
+
+          booking.slots = slotResults; // attach array of slots
+          delete booking.slot_id; // don’t expose raw JSON
           resolve(booking);
         });
       });
@@ -1128,6 +1140,7 @@ router.get('/customer/bookings', authenticate, (req, res) => {
       });
   });
 });
+
 
 
 router.post('/add-address', authenticate, (req, res) => {
