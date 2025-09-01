@@ -173,6 +173,9 @@ router.get('/customer/shops', (req, res) => {
             s.price,
             s.approx_time,
             s.vendor_id,
+            s.service_type,
+            s.location,
+            s.meet_link,
             sc.name AS subcategory_name,
             sc.image AS subcategory_image
           FROM services s
