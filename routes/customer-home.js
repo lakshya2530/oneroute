@@ -218,7 +218,7 @@ router.get('/customer/shops', (req, res) => {
             const formattedServices = serviceResults.map(s => ({
               ...s,
               subcategory_image: s.subcategory_image
-                ? `${baseUrl}/subcategories/${s.subcategory_image}`
+                ? `${baseUrl}/${s.subcategory_image}`
                 : '',
               slots: slotsByService[s.service_id] || []
             }));
