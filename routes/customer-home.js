@@ -929,9 +929,9 @@ router.post('/book-service', authenticate, (req, res) => {
   `;
   db.query(slotCheckQuery, [slot_ids, service_id], (err, slotResults) => {
     if (err) return res.status(500).json({ error: err.message });
-    if (slotResults.length !== slot_ids.length) {
-      return res.status(400).json({ error: 'One or more slots are invalid for this service' });
-    }
+    // if (slotResults.length !== slot_ids.length) {
+    //   return res.status(400).json({ error: 'One or more slots are invalid for this service' });
+    // }
 
     // Step 2: Check if any slot already booked
     const bookingCheck = `
