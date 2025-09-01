@@ -1012,6 +1012,45 @@ router.post('/book-service', authenticate, (req, res) => {
 // });
 
 
+// router.get('/customer/bookings', authenticate, (req, res) => {
+//   const customer_id = req.user.id;
+//   const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+
+//   const sql = `
+//     SELECT 
+//       b.id AS booking_id,
+//       b.status,
+//       b.created_at,
+//       s.service_name,
+//       s.service_description,
+//       s.price,
+//       s.service_type,
+//       s.location,
+//       s.meet_link,
+//       ss.slot_date,
+//       ss.slot_time,
+//       ca.name AS address_name,
+//       ca.description AS address
+//     FROM bookings b
+//     JOIN services s ON b.service_id = s.id
+//     JOIN service_slots ss ON b.slot_id = ss.id
+//     JOIN customer_addresses ca ON b.address_id = ca.id
+//     WHERE b.customer_id = ?
+//     ORDER BY b.id DESC
+//   `;
+
+//   db.query(sql, [customer_id], (err, results) => {
+//     if (err) return res.status(500).json({ error: err.message });
+
+//     res.json({
+//       status: true,
+//       message: 'Customer bookings fetched successfully',
+//       data: results
+//     });
+//   });
+// });
+
+
 router.get('/customer/bookings', authenticate, (req, res) => {
   const customer_id = req.user.id;
   const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
@@ -1021,32 +1060,72 @@ router.get('/customer/bookings', authenticate, (req, res) => {
       b.id AS booking_id,
       b.status,
       b.created_at,
+      b.slot_id, -- JSON array
       s.service_name,
       s.service_description,
       s.price,
       s.service_type,
       s.location,
       s.meet_link,
-      ss.slot_date,
-      ss.slot_time,
       ca.name AS address_name,
       ca.description AS address
     FROM bookings b
     JOIN services s ON b.service_id = s.id
-    JOIN service_slots ss ON b.slot_id = ss.id
     JOIN customer_addresses ca ON b.address_id = ca.id
     WHERE b.customer_id = ?
     ORDER BY b.id DESC
   `;
 
-  db.query(sql, [customer_id], (err, results) => {
+  db.query(sql, [customer_id], async (err, bookings) => {
     if (err) return res.status(500).json({ error: err.message });
+    if (!bookings.length) {
+      return res.json({
+        status: true,
+        message: 'No bookings found',
+        data: []
+      });
+    }
 
-    res.json({
-      status: true,
-      message: 'Customer bookings fetched successfully',
-      data: results
+    // Process each booking
+    const promises = bookings.map(booking => {
+      return new Promise((resolve, reject) => {
+        let slotIds = [];
+        try {
+          slotIds = JSON.parse(booking.slot_id);
+        } catch (e) {
+          slotIds = [];
+        }
+
+        if (slotIds.length === 0) {
+          booking.slots = [];
+          return resolve(booking);
+        }
+
+        const slotSql = `
+          SELECT id AS slot_id, slot_date, slot_time
+          FROM service_slots
+          WHERE id IN (?)
+        `;
+        db.query(slotSql, [slotIds], (err2, slotResults) => {
+          if (err2) return reject(err2);
+          booking.slots = slotResults; // attach all slot details
+          delete booking.slot_id; // remove raw JSON field
+          resolve(booking);
+        });
+      });
     });
+
+    Promise.all(promises)
+      .then(data => {
+        res.json({
+          status: true,
+          message: 'Customer bookings fetched successfully',
+          data
+        });
+      })
+      .catch(err3 => {
+        res.status(500).json({ error: err3.message });
+      });
   });
 });
 
