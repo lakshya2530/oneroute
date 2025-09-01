@@ -962,6 +962,41 @@ router.post('/book-service', authenticate, (req, res) => {
 });
 
 
+router.get('/customer/bookings', authenticate, (req, res) => {
+  const customer_id = req.user.id;
+  const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+
+  const sql = `
+    SELECT 
+      b.id AS booking_id,
+      b.status,
+      b.created_at,
+      s.service_name,
+      s.service_description,
+      s.price,
+      ss.slot_date,
+      ss.slot_time,
+      ca.name AS address_name,
+      ca.description AS address
+    FROM bookings b
+    JOIN services s ON b.service_id = s.id
+    JOIN service_slots ss ON b.slot_id = ss.id
+    JOIN customer_addresses ca ON b.address_id = ca.id
+    WHERE b.customer_id = ?
+    ORDER BY b.id DESC
+  `;
+
+  db.query(sql, [customer_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    res.json({
+      status: true,
+      message: 'Customer bookings fetched successfully',
+      data: results
+    });
+  });
+});
+
 
 router.post('/add-address', authenticate, (req, res) => {
   const { name, description } = req.body;

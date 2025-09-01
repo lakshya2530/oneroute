@@ -168,6 +168,103 @@ router.put(
   }
 );
 
+router.post('/vendor/booking-action', authenticate, (req, res) => {
+  const vendor_id = req.user.id;
+  const { booking_id, action, cancel_reason } = req.body;
+
+  if (!booking_id || !action) {
+    return res.status(400).json({ error: 'Booking ID and action are required' });
+  }
+
+  if (action === 'reject' && !cancel_reason) {
+    return res.status(400).json({ error: 'Cancel reason required when rejecting' });
+  }
+
+  // Verify vendor owns this booking
+  const checkSql = `
+    SELECT b.id, s.vendor_id 
+    FROM bookings b
+    JOIN services s ON b.service_id = s.id
+    WHERE b.id = ?
+  `;
+  db.query(checkSql, [booking_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (!results.length) return res.status(404).json({ error: 'Booking not found' });
+
+    if (results[0].vendor_id !== vendor_id) {
+      return res.status(403).json({ error: 'Not authorized for this booking' });
+    }
+
+    // Update booking status
+    let newStatus = '';
+    let params = [];
+    if (action === 'accept') {
+      newStatus = 'accepted';
+      params = [newStatus, null, booking_id];
+    } else if (action === 'reject') {
+      newStatus = 'rejected';
+      params = [newStatus, cancel_reason, booking_id];
+    } else {
+      return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    const updateSql = `
+      UPDATE bookings 
+      SET status = ?, cancel_reason = ? 
+      WHERE id = ?
+    `;
+    db.query(updateSql, params, (err2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+
+      res.json({
+        status: true,
+        message: `Booking ${newStatus} successfully`,
+        booking_id,
+        new_status: newStatus,
+        cancel_reason: action === 'reject' ? cancel_reason : null
+      });
+    });
+  });
+});
+
+router.get('/vendor/bookings', authenticate, (req, res) => {
+  const vendor_id = req.user.id;
+
+  const sql = `
+    SELECT 
+      b.id AS booking_id,
+      b.status,
+      b.cancel_reason,
+      b.created_at,
+      u.full_name AS customer_name,
+      u.phone AS customer_phone,
+      s.service_name,
+      s.price,
+      ss.slot_date,
+      ss.slot_time,
+      ca.name AS address_name,
+      ca.description AS address
+    FROM bookings b
+    JOIN services s ON b.service_id = s.id
+    JOIN users u ON b.customer_id = u.id
+    JOIN service_slots ss ON b.slot_id = ss.id
+    JOIN customer_addresses ca ON b.address_id = ca.id
+    WHERE s.vendor_id = ?
+    ORDER BY b.id DESC
+  `;
+
+  db.query(sql, [vendor_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    res.json({
+      status: true,
+      message: 'Vendor bookings fetched successfully',
+      data: results
+    });
+  });
+});
+
+
 // ✅ Get Shop API
 router.get('/vendor/shop', authenticate, (req, res) => {
   const vendor_id = req.user.id;
