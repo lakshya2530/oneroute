@@ -922,22 +922,19 @@ router.post('/book-service', authenticate, (req, res) => {
     return res.status(400).json({ error: 'Service ID, slot IDs array, and address ID are required' });
   }
 
-  // Step 1: Validate slots
-  const slotCheckQuery = `
-    SELECT id FROM service_slots 
-    WHERE id IN (?) AND service_id = ?
-  `;
-  db.query(slotCheckQuery, [slot_ids, service_id], (err, slotResults) => {
+  // Step 1: Verify service exists
+  const serviceCheck = `SELECT id FROM services WHERE id = ?`;
+  db.query(serviceCheck, [service_id], (err, serviceResults) => {
     if (err) return res.status(500).json({ error: err.message });
-    // if (slotResults.length !== slot_ids.length) {
-    //   return res.status(400).json({ error: 'One or more slots are invalid for this service' });
-    // }
+    if (serviceResults.length === 0) {
+      return res.status(404).json({ error: 'Service not found' });
+    }
 
-    // Step 2: Check if any slot already booked
+    // Step 2: Check if slots are already booked
     const bookingCheck = `
       SELECT * FROM bookings 
-      WHERE JSON_OVERLAPS(slot_id, CAST(? AS JSON)) 
-        AND service_id = ? 
+      WHERE JSON_OVERLAPS(slot_id, CAST(? AS JSON))
+        AND service_id = ?
         AND status != "cancelled"
     `;
     db.query(bookingCheck, [JSON.stringify(slot_ids), service_id], (err2, booked) => {
@@ -946,7 +943,7 @@ router.post('/book-service', authenticate, (req, res) => {
         return res.status(400).json({ error: 'One or more slots already booked' });
       }
 
-      // Step 3: Insert booking
+      // Step 3: Insert one booking row
       const insertBooking = `
         INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status)
         VALUES (?, ?, CAST(? AS JSON), ?, 'pending')
