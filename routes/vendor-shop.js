@@ -236,6 +236,7 @@ router.get('/vendor/bookings', authenticate, (req, res) => {
       b.status,
       b.cancel_reason,
       b.created_at,
+      b.slot_id, -- JSON / stringified array
       u.full_name AS customer_name,
       u.phone AS customer_phone,
       s.service_name,
@@ -243,27 +244,74 @@ router.get('/vendor/bookings', authenticate, (req, res) => {
       s.service_type,
       s.location,
       s.meet_link,
-      ss.slot_date,
-      ss.slot_time,
       ca.name AS address_name,
       ca.description AS address
     FROM bookings b
     JOIN services s ON b.service_id = s.id
     JOIN users u ON b.customer_id = u.id
-    JOIN service_slots ss ON b.slot_id = ss.id
     JOIN customer_addresses ca ON b.address_id = ca.id
     WHERE s.vendor_id = ?
     ORDER BY b.id DESC
   `;
 
-  db.query(sql, [vendor_id], (err, results) => {
+  db.query(sql, [vendor_id], async (err, bookings) => {
     if (err) return res.status(500).json({ error: err.message });
+    if (!bookings.length) {
+      return res.json({
+        status: true,
+        message: 'No bookings found',
+        data: []
+      });
+    }
 
-    res.json({
-      status: true,
-      message: 'Vendor bookings fetched successfully',
-      data: results
+    const promises = bookings.map(booking => {
+      return new Promise((resolve, reject) => {
+        let slotIds = [];
+
+        // Parse slot_id into array
+        try {
+          if (typeof booking.slot_id === 'string') {
+            slotIds = JSON.parse(booking.slot_id);
+          } else {
+            slotIds = booking.slot_id;
+          }
+          if (!Array.isArray(slotIds)) slotIds = [];
+          slotIds = slotIds.map(id => parseInt(id));
+        } catch (e) {
+          slotIds = [];
+        }
+
+        if (slotIds.length === 0) {
+          booking.slots = [];
+          delete booking.slot_id;
+          return resolve(booking);
+        }
+
+        const slotSql = `
+          SELECT id AS slot_id, slot_date, slot_time
+          FROM service_slots
+          WHERE id IN (?)
+        `;
+        db.query(slotSql, [slotIds], (err2, slotResults) => {
+          if (err2) return reject(err2);
+          booking.slots = slotResults;
+          delete booking.slot_id;
+          resolve(booking);
+        });
+      });
     });
+
+    Promise.all(promises)
+      .then(data => {
+        res.json({
+          status: true,
+          message: 'Vendor bookings fetched successfully',
+          data
+        });
+      })
+      .catch(err3 => {
+        res.status(500).json({ error: err3.message });
+      });
   });
 });
 
