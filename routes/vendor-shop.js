@@ -316,6 +316,39 @@ router.get('/vendor/bookings', authenticate, (req, res) => {
 });
 
 
+router.get('/vendor/transactions', authenticate, (req, res) => {
+  const vendor_id = req.user.id;
+
+  const sql = `
+    SELECT 
+      t.id AS transaction_id,
+      t.booking_id,
+      t.amount,
+      t.currency,
+      t.status,
+      t.created_at,
+      u.full_name AS customer_name,
+      s.service_name
+    FROM transactions t
+    JOIN bookings b ON t.booking_id = b.id
+    JOIN services s ON b.service_id = s.id
+    JOIN users u ON b.customer_id = u.id
+    WHERE s.vendor_id = ?
+    ORDER BY t.id DESC
+  `;
+
+  db.query(sql, [vendor_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    res.json({
+      status: true,
+      message: 'Vendor transactions fetched successfully',
+      data: results
+    });
+  });
+});
+
+
 // ✅ Get Shop API
 router.get('/vendor/shop', authenticate, (req, res) => {
   const vendor_id = req.user.id;

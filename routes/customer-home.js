@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/connection');
 const authenticate = require('../middleware/auth');
+const razorpay = require("./razorpay"); // import config
+const crypto = require("crypto");
 
 router.get('/customer/home', async (req, res) => {
   try {
@@ -914,6 +916,56 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
   });
 });
 
+// router.post('/book-service', authenticate, (req, res) => {
+//   const { service_id, slot_ids, address_id } = req.body;
+//   const customer_id = req.user.id;
+
+//   if (!service_id || !slot_ids || !Array.isArray(slot_ids) || slot_ids.length === 0 || !address_id) {
+//     return res.status(400).json({ error: 'Service ID, slot IDs array, and address ID are required' });
+//   }
+
+//   // Step 1: Verify service exists
+//   const serviceCheck = `SELECT id FROM services WHERE id = ?`;
+//   db.query(serviceCheck, [service_id], (err, serviceResults) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     if (serviceResults.length === 0) {
+//       return res.status(404).json({ error: 'Service not found' });
+//     }
+
+//     // Step 2: Check if slots are already booked
+//     const bookingCheck = `
+//       SELECT * FROM bookings 
+//       WHERE JSON_OVERLAPS(slot_id, CAST(? AS JSON))
+//         AND service_id = ?
+//         AND status != "cancelled"
+//     `;
+//     db.query(bookingCheck, [JSON.stringify(slot_ids), service_id], (err2, booked) => {
+//       if (err2) return res.status(500).json({ error: err2.message });
+//       if (booked.length > 0) {
+//         return res.status(400).json({ error: 'One or more slots already booked' });
+//       }
+
+//       // Step 3: Insert one booking row
+//       const insertBooking = `
+//         INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status)
+//         VALUES (?, ?, CAST(? AS JSON), ?, 'pending')
+//       `;
+//       db.query(insertBooking, [customer_id, service_id, JSON.stringify(slot_ids), address_id], (err3, result) => {
+//         if (err3) return res.status(500).json({ error: err3.message });
+
+//         res.json({
+//           status: true,
+//           message: 'Service booked successfully',
+//           booking_id: result.insertId,
+//           slot_ids,
+//           status_value: 'pending'
+//         });
+//       });
+//     });
+//   });
+// });
+
+
 router.post('/book-service', authenticate, (req, res) => {
   const { service_id, slot_ids, address_id } = req.body;
   const customer_id = req.user.id;
@@ -922,13 +974,15 @@ router.post('/book-service', authenticate, (req, res) => {
     return res.status(400).json({ error: 'Service ID, slot IDs array, and address ID are required' });
   }
 
-  // Step 1: Verify service exists
-  const serviceCheck = `SELECT id FROM services WHERE id = ?`;
+  // Step 1: Verify service exists and get price
+  const serviceCheck = `SELECT id, price FROM services WHERE id = ?`;
   db.query(serviceCheck, [service_id], (err, serviceResults) => {
     if (err) return res.status(500).json({ error: err.message });
     if (serviceResults.length === 0) {
       return res.status(404).json({ error: 'Service not found' });
     }
+
+    const servicePrice = serviceResults[0].price * slot_ids.length; // price x slots
 
     // Step 2: Check if slots are already booked
     const bookingCheck = `
@@ -943,112 +997,141 @@ router.post('/book-service', authenticate, (req, res) => {
         return res.status(400).json({ error: 'One or more slots already booked' });
       }
 
-      // Step 3: Insert one booking row
-      const insertBooking = `
-        INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status)
-        VALUES (?, ?, CAST(? AS JSON), ?, 'pending')
-      `;
-      db.query(insertBooking, [customer_id, service_id, JSON.stringify(slot_ids), address_id], (err3, result) => {
-        if (err3) return res.status(500).json({ error: err3.message });
+      // Step 3: Create Razorpay order
+      const options = {
+        amount: servicePrice * 100, // in paise
+        currency: "INR",
+        receipt: `receipt_${Date.now()}`
+      };
 
-        res.json({
-          status: true,
-          message: 'Service booked successfully',
-          booking_id: result.insertId,
-          slot_ids,
-          status_value: 'pending'
+      razorpay.orders.create(options, (err3, order) => {
+        if (err3) return res.status(500).json({ error: 'Razorpay order creation failed', details: err3 });
+
+        // Step 4: Insert booking (pending_payment)
+        const insertBooking = `
+          INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status, razorpay_order_id, amount)
+          VALUES (?, ?, CAST(? AS JSON), ?, 'pending_payment', ?, ?)
+        `;
+        db.query(insertBooking, [
+          customer_id,
+          service_id,
+          JSON.stringify(slot_ids),
+          address_id,
+          order.id,
+          servicePrice
+        ], (err4, result) => {
+          if (err4) return res.status(500).json({ error: err4.message });
+
+          const booking_id = result.insertId;
+
+          // Step 5: Insert transaction entry
+          const insertTxn = `
+            INSERT INTO transactions (booking_id, customer_id, razorpay_order_id, amount, status)
+            VALUES (?, ?, ?, ?, 'pending')
+          `;
+          db.query(insertTxn, [booking_id, customer_id, order.id, servicePrice]);
+
+          // Step 6: Send response with order details
+          res.json({
+            status: true,
+            message: 'Razorpay order created. Proceed with payment.',
+            booking_id,
+            razorpay_order: order,
+            amount: servicePrice,
+            slot_ids,
+            status_value: 'pending_payment'
+          });
         });
       });
     });
   });
 });
 
+router.post('/service/verify-payment', authenticate, (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature, booking_id } = req.body;
+
+  if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !booking_id) {
+    return res.status(400).json({ error: "All fields are required" });
+  }
+
+  const key_secret = process.env.RAZORPAY_KEY_SECRET;
+
+  // Step 1: Generate expected signature
+  const generated_signature = crypto
+    .createHmac("sha256", key_secret)
+    .update(razorpay_order_id + "|" + razorpay_payment_id)
+    .digest("hex");
+
+  if (generated_signature === razorpay_signature) {
+    // ✅ Payment verified → update booking + transaction
+    const updateBooking = `
+      UPDATE bookings
+      SET status = 'confirmed',
+          razorpay_payment_id = ?
+      WHERE id = ?
+    `;
+    db.query(updateBooking, [razorpay_payment_id, booking_id], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+
+      const updateTxn = `
+        UPDATE transactions
+        SET razorpay_payment_id = ?, razorpay_signature = ?, status = 'success'
+        WHERE booking_id = ?
+      `;
+      db.query(updateTxn, [razorpay_payment_id, razorpay_signature, booking_id]);
+
+      res.json({
+        status: true,
+        message: "Payment verified and booking confirmed"
+      });
+    });
+  } else {
+    // ❌ Invalid payment
+    const failTxn = `
+      UPDATE transactions
+      SET razorpay_payment_id = ?, razorpay_signature = ?, status = 'failed'
+      WHERE booking_id = ?
+    `;
+    db.query(failTxn, [razorpay_payment_id, razorpay_signature, booking_id]);
+
+    res.status(400).json({ error: "Invalid payment signature" });
+  }
+});
 
 
-// router.post('/book-service', authenticate, (req, res) => {
-//   const { service_id, slot_id, address_id } = req.body;
-//   const customer_id = req.user.id; // from JWT
+router.get('/customer/transactions', authenticate, (req, res) => {
+  const customer_id = req.user.id;
 
-//   if (!service_id || !slot_id || !address_id) {
-//     return res.status(400).json({ error: 'All fields are required' });
-//   }
+  const sql = `
+    SELECT 
+      t.id AS transaction_id,
+      t.booking_id,
+      t.razorpay_order_id,
+      t.razorpay_payment_id,
+      t.amount,
+      t.currency,
+      t.status,
+      t.created_at,
+      s.service_name,
+      b.status AS booking_status
+    FROM transactions t
+    JOIN bookings b ON t.booking_id = b.id
+    JOIN services s ON b.service_id = s.id
+    WHERE t.customer_id = ?
+    ORDER BY t.id DESC
+  `;
 
-//   const slotCheckQuery = `
-//     SELECT * FROM service_slots 
-//     WHERE id = ? AND service_id = ?
-//   `;
-//   db.query(slotCheckQuery, [slot_id, service_id], (err, slotResults) => {
-//     if (err) return res.status(500).json({ error: err.message });
-//     if (slotResults.length === 0) {
-//       return res.status(400).json({ error: 'Invalid slot for this service' });
-//     }
+  db.query(sql, [customer_id], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
 
-//     const bookingCheck = `
-//       SELECT * FROM bookings 
-//       WHERE slot_id = ? AND status != "cancelled"
-//     `;
-//     db.query(bookingCheck, [slot_id], (err2, booked) => {
-//       if (err2) return res.status(500).json({ error: err2.message });
-//       if (booked.length > 0) {
-//         return res.status(400).json({ error: 'Slot already booked' });
-//       }
+    res.json({
+      status: true,
+      message: 'Transaction history fetched successfully',
+      data: results
+    });
+  });
+});
 
-//       const insertBooking = `
-//         INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status)
-//         VALUES (?, ?, ?, ?, 'pending')
-//       `;
-//       db.query(insertBooking, [customer_id, service_id, slot_id, address_id], (err3, result) => {
-//         if (err3) return res.status(500).json({ error: err3.message });
-
-//         res.json({
-//           status: true,
-//           message: 'Service booked successfully',
-//           booking_id: result.insertId,
-//           status_value: 'pending'
-//         });
-//       });
-//     });
-//   });
-// });
-
-
-// router.get('/customer/bookings', authenticate, (req, res) => {
-//   const customer_id = req.user.id;
-//   const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
-
-//   const sql = `
-//     SELECT 
-//       b.id AS booking_id,
-//       b.status,
-//       b.created_at,
-//       s.service_name,
-//       s.service_description,
-//       s.price,
-//       s.service_type,
-//       s.location,
-//       s.meet_link,
-//       ss.slot_date,
-//       ss.slot_time,
-//       ca.name AS address_name,
-//       ca.description AS address
-//     FROM bookings b
-//     JOIN services s ON b.service_id = s.id
-//     JOIN service_slots ss ON b.slot_id = ss.id
-//     JOIN customer_addresses ca ON b.address_id = ca.id
-//     WHERE b.customer_id = ?
-//     ORDER BY b.id DESC
-//   `;
-
-//   db.query(sql, [customer_id], (err, results) => {
-//     if (err) return res.status(500).json({ error: err.message });
-
-//     res.json({
-//       status: true,
-//       message: 'Customer bookings fetched successfully',
-//       data: results
-//     });
-//   });
-// });
 
 router.get('/customer/bookings', authenticate, (req, res) => {
   const customer_id = req.user.id;
