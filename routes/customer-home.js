@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const db = require('../db/connection');
 const authenticate = require('../middleware/auth');
-const razorpay = require("./razorpay"); // import config
+const razorpay = require("../config/razorpay"); // import config
 const crypto = require("crypto");
 
 router.get('/customer/home', async (req, res) => {
