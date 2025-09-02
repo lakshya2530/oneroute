@@ -966,6 +966,88 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
 // });
 
 
+// router.post('/book-service', authenticate, (req, res) => {
+//   const { service_id, slot_ids, address_id } = req.body;
+//   const customer_id = req.user.id;
+
+//   if (!service_id || !slot_ids || !Array.isArray(slot_ids) || slot_ids.length === 0 || !address_id) {
+//     return res.status(400).json({ error: 'Service ID, slot IDs array, and address ID are required' });
+//   }
+
+//   // Step 1: Verify service exists and get price
+//   const serviceCheck = `SELECT id, price FROM services WHERE id = ?`;
+//   db.query(serviceCheck, [service_id], (err, serviceResults) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     if (serviceResults.length === 0) {
+//       return res.status(404).json({ error: 'Service not found' });
+//     }
+
+//     const servicePrice = serviceResults[0].price * slot_ids.length; // price x slots
+
+//     // Step 2: Check if slots are already booked
+//     const bookingCheck = `
+//       SELECT * FROM bookings 
+//       WHERE JSON_OVERLAPS(slot_id, CAST(? AS JSON))
+//         AND service_id = ?
+//         AND status != "cancelled"
+//     `;
+//     db.query(bookingCheck, [JSON.stringify(slot_ids), service_id], (err2, booked) => {
+//       if (err2) return res.status(500).json({ error: err2.message });
+//       if (booked.length > 0) {
+//         return res.status(400).json({ error: 'One or more slots already booked' });
+//       }
+
+//       // Step 3: Create Razorpay order
+//       const options = {
+//         amount: servicePrice * 100, // in paise
+//         currency: "INR",
+//         receipt: `receipt_${Date.now()}`
+//       };
+
+//       razorpay.orders.create(options, (err3, order) => {
+//         if (err3) return res.status(500).json({ error: 'Razorpay order creation failed', details: err3 });
+
+//         // Step 4: Insert booking (pending_payment)
+//         const insertBooking = `
+//           INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status, razorpay_order_id, amount)
+//           VALUES (?, ?, CAST(? AS JSON), ?, 'pending_payment', ?, ?)
+//         `;
+//         db.query(insertBooking, [
+//           customer_id,
+//           service_id,
+//           JSON.stringify(slot_ids),
+//           address_id,
+//           order.id,
+//           servicePrice
+//         ], (err4, result) => {
+//           if (err4) return res.status(500).json({ error: err4.message });
+
+//           const booking_id = result.insertId;
+
+//           // Step 5: Insert transaction entry
+//           const insertTxn = `
+//             INSERT INTO transactions (booking_id, customer_id, razorpay_order_id, amount, status)
+//             VALUES (?, ?, ?, ?, 'pending')
+//           `;
+//           db.query(insertTxn, [booking_id, customer_id, order.id, servicePrice]);
+
+//           // Step 6: Send response with order details
+//           res.json({
+//             status: true,
+//             message: 'Razorpay order created. Proceed with payment.',
+//             booking_id,
+//             razorpay_order: order,
+//             amount: servicePrice,
+//             slot_ids,
+//             status_value: 'pending_payment'
+//           });
+//         });
+//       });
+//     });
+//   });
+// });
+
+
 router.post('/book-service', authenticate, (req, res) => {
   const { service_id, slot_ids, address_id } = req.body;
   const customer_id = req.user.id;
@@ -982,24 +1064,45 @@ router.post('/book-service', authenticate, (req, res) => {
       return res.status(404).json({ error: 'Service not found' });
     }
 
-    const servicePrice = serviceResults[0].price * slot_ids.length; // price x slots
+    const pricePerSlot = serviceResults[0].price;
 
-    // Step 2: Check if slots are already booked
+    // Step 2: Find already booked slots
     const bookingCheck = `
-      SELECT * FROM bookings 
-      WHERE JSON_OVERLAPS(slot_id, CAST(? AS JSON))
-        AND service_id = ?
-        AND status != "cancelled"
+      SELECT slot_id FROM bookings 
+      WHERE service_id = ? 
+      AND status != "cancelled"
     `;
-    db.query(bookingCheck, [JSON.stringify(slot_ids), service_id], (err2, booked) => {
+    db.query(bookingCheck, [service_id], (err2, bookedResults) => {
       if (err2) return res.status(500).json({ error: err2.message });
-      if (booked.length > 0) {
-        return res.status(400).json({ error: 'One or more slots already booked' });
+
+      // Flatten booked slots JSON arrays into a single set
+      let bookedSlots = [];
+      bookedResults.forEach(row => {
+        try {
+          const arr = JSON.parse(row.slot_id);
+          bookedSlots = bookedSlots.concat(arr);
+        } catch (e) {
+          // ignore
+        }
+      });
+
+      // Remove duplicates
+      bookedSlots = [...new Set(bookedSlots)];
+
+      // Check which requested slots are free
+      const requestedSlots = slot_ids.map(Number);
+      const availableSlots = requestedSlots.filter(id => !bookedSlots.includes(id));
+      const alreadyBookedSlots = requestedSlots.filter(id => bookedSlots.includes(id));
+
+      if (availableSlots.length === 0) {
+        return res.status(400).json({ error: 'All requested slots are already booked', alreadyBookedSlots });
       }
+
+      const totalAmount = pricePerSlot * availableSlots.length;
 
       // Step 3: Create Razorpay order
       const options = {
-        amount: servicePrice * 100, // in paise
+        amount: totalAmount * 100, // in paise
         currency: "INR",
         receipt: `receipt_${Date.now()}`
       };
@@ -1007,7 +1110,7 @@ router.post('/book-service', authenticate, (req, res) => {
       razorpay.orders.create(options, (err3, order) => {
         if (err3) return res.status(500).json({ error: 'Razorpay order creation failed', details: err3 });
 
-        // Step 4: Insert booking (pending_payment)
+        // Step 4: Insert booking with only available slots
         const insertBooking = `
           INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status, razorpay_order_id, amount)
           VALUES (?, ?, CAST(? AS JSON), ?, 'pending_payment', ?, ?)
@@ -1015,10 +1118,10 @@ router.post('/book-service', authenticate, (req, res) => {
         db.query(insertBooking, [
           customer_id,
           service_id,
-          JSON.stringify(slot_ids),
+          JSON.stringify(availableSlots),
           address_id,
           order.id,
-          servicePrice
+          totalAmount
         ], (err4, result) => {
           if (err4) return res.status(500).json({ error: err4.message });
 
@@ -1029,16 +1132,17 @@ router.post('/book-service', authenticate, (req, res) => {
             INSERT INTO transactions (booking_id, customer_id, razorpay_order_id, amount, status)
             VALUES (?, ?, ?, ?, 'pending')
           `;
-          db.query(insertTxn, [booking_id, customer_id, order.id, servicePrice]);
+          db.query(insertTxn, [booking_id, customer_id, order.id, totalAmount]);
 
-          // Step 6: Send response with order details
+          // Step 6: Response
           res.json({
             status: true,
-            message: 'Razorpay order created. Proceed with payment.',
+            message: 'Booking created (some slots may have been skipped). Proceed with payment.',
             booking_id,
             razorpay_order: order,
-            amount: servicePrice,
-            slot_ids,
+            amount: totalAmount,
+            booked_slots: availableSlots,
+            skipped_slots: alreadyBookedSlots,
             status_value: 'pending_payment'
           });
         });
