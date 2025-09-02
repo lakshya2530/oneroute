@@ -100,6 +100,10 @@ const { Server } = require('socket.io');
 
 dotenv.config();
 
+
+console.log("RAZORPAY_KEY_ID:", process.env.RAZORPAY_KEY_ID);
+console.log("RAZORPAY_KEY_SECRET:", process.env.RAZORPAY_KEY_SECRET);
+
 const app = express();
 
 // ✅ HTTPS credentials (make sure these files exist)
