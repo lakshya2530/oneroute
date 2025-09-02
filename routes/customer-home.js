@@ -966,85 +966,70 @@ router.get('/my-product-request-sets', authenticate, (req, res) => {
 // });
 
 
-router.post('/book-service', authenticate, (req, res) => {
-  const { service_id, slot_ids, address_id } = req.body;
-  const customer_id = req.user.id;
+router.post("/book-service", authenticate, async (req, res) => {
+  try {
+    const { service_id, slot_ids, address_id } = req.body;
+    const customer_id = req.user.id;
 
-  if (!service_id || !slot_ids || !Array.isArray(slot_ids) || slot_ids.length === 0 || !address_id) {
-    return res.status(400).json({ error: 'Service ID, slot IDs array, and address ID are required' });
-  }
-
-  // Step 1: Verify service exists and get price
-  const serviceCheck = `SELECT id, price FROM services WHERE id = ?`;
-  db.query(serviceCheck, [service_id], (err, serviceResults) => {
-    if (err) return res.status(500).json({ error: err.message });
-    if (serviceResults.length === 0) {
-      return res.status(404).json({ error: 'Service not found' });
+    if (!service_id || !slot_ids || !Array.isArray(slot_ids) || slot_ids.length === 0 || !address_id) {
+      return res.status(400).json({ error: "Service ID, slot IDs array, and address ID are required" });
     }
 
-    const servicePrice = serviceResults[0].price * slot_ids.length; // price x slots
+    // Step 1: Verify service exists
+    const serviceCheck = `SELECT id, price FROM services WHERE id = ?`;
+    const [serviceResults] = await db.promise().query(serviceCheck, [service_id]);
+    if (serviceResults.length === 0) {
+      return res.status(404).json({ error: "Service not found" });
+    }
 
-    // Step 2: Check if slots are already booked
-    const bookingCheck = `
-      SELECT * FROM bookings 
-      WHERE JSON_OVERLAPS(slot_id, CAST(? AS JSON))
-        AND service_id = ?
-        AND status != "cancelled"
+    const servicePrice = serviceResults[0].price * slot_ids.length;
+
+    // Step 2: Create Razorpay order
+    const options = {
+      amount: servicePrice * 100, // in paise
+      currency: "INR",
+      receipt: `receipt_${Date.now()}`
+    };
+
+    const order = await razorpay.orders.create(options); // ✅ async/await call
+
+    // Step 3: Insert booking
+    const insertBooking = `
+      INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status, razorpay_order_id, amount)
+      VALUES (?, ?, CAST(? AS JSON), ?, 'pending_payment', ?, ?)
     `;
-    db.query(bookingCheck, [JSON.stringify(slot_ids), service_id], (err2, booked) => {
-      if (err2) return res.status(500).json({ error: err2.message });
-      if (booked.length > 0) {
-        return res.status(400).json({ error: 'One or more slots already booked' });
-      }
+    const [bookingResult] = await db.promise().query(insertBooking, [
+      customer_id,
+      service_id,
+      JSON.stringify(slot_ids),
+      address_id,
+      order.id,
+      servicePrice
+    ]);
 
-      // Step 3: Create Razorpay order
-      const options = {
-        amount: servicePrice * 100, // in paise
-        currency: "INR",
-        receipt: `receipt_${Date.now()}`
-      };
+    const booking_id = bookingResult.insertId;
 
-      razorpay.orders.create(options, (err3, order) => {
-        if (err3) return res.status(500).json({ error: 'Razorpay order creation failed', details: err3 });
+    // Step 4: Insert transaction entry
+    const insertTxn = `
+      INSERT INTO transactions (booking_id, customer_id, razorpay_order_id, amount, status)
+      VALUES (?, ?, ?, ?, 'pending')
+    `;
+    await db.promise().query(insertTxn, [booking_id, customer_id, order.id, servicePrice]);
 
-        // Step 4: Insert booking (pending_payment)
-        const insertBooking = `
-          INSERT INTO bookings (customer_id, service_id, slot_id, address_id, status, razorpay_order_id, amount)
-          VALUES (?, ?, CAST(? AS JSON), ?, 'pending_payment', ?, ?)
-        `;
-        db.query(insertBooking, [
-          customer_id,
-          service_id,
-          JSON.stringify(slot_ids),
-          address_id,
-          order.id,
-          servicePrice
-        ], (err4, result) => {
-          if (err4) return res.status(500).json({ error: err4.message });
-
-          const booking_id = result.insertId;
-
-          // Step 5: Insert transaction entry
-          const insertTxn = `
-            INSERT INTO transactions (booking_id, customer_id, razorpay_order_id, amount, status)
-            VALUES (?, ?, ?, ?, 'pending')
-          `;
-          db.query(insertTxn, [booking_id, customer_id, order.id, servicePrice]);
-
-          // Step 6: Send response with order details
-          res.json({
-            status: true,
-            message: 'Razorpay order created. Proceed with payment.',
-            booking_id,
-            razorpay_order: order,
-            amount: servicePrice,
-            slot_ids,
-            status_value: 'pending_payment'
-          });
-        });
-      });
+    res.json({
+      status: true,
+      message: "Razorpay order created. Proceed with payment.",
+      booking_id,
+      razorpay_order: order,
+      amount: servicePrice,
+      slot_ids,
+      status_value: "pending_payment"
     });
-  });
+
+  } catch (err) {
+    console.error("Book Service Error:", err);
+    res.status(500).json({ error: err.message || err });
+  }
 });
 
 router.post('/service/verify-payment', authenticate, (req, res) => {
