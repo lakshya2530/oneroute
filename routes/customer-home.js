@@ -621,7 +621,7 @@ router.get('/customer/shops', (req, res) => {
   
                 // Step 5: Insert transaction
                 const txnSql = `
-                  INSERT INTO transactions (order_id, customer_id, razorpay_order_id, amount, status)
+                  INSERT INTO transactions (order_id, customer_id, razorpay_order_id, amount, status, transaction_type)
                   VALUES (?, ?, ?, ?, 'pending','order')
                 `;
                 db.query(txnSql, [order_id, customer_id, razorpayOrder.id, totalAmount]);
@@ -1146,7 +1146,7 @@ router.post("/book-service", authenticate, async (req, res) => {
 
     // Step 4: Insert transaction entry
     const insertTxn = `
-      INSERT INTO transactions (booking_id, customer_id, razorpay_order_id, amount, status)
+      INSERT INTO transactions (booking_id, customer_id, razorpay_order_id, amount, status,transaction_type)
       VALUES (?, ?, ?, ?, 'pending','service')
     `;
     await db.promise().query(insertTxn, [booking_id, customer_id, order.id, servicePrice]);
