@@ -322,24 +322,34 @@ router.get('/vendor/transactions', authenticate, (req, res) => {
   const sql = `
     SELECT 
       t.id AS transaction_id,
-      t.booking_id,
+      t.transaction_type,
       t.amount,
-      t.currency,
       t.status,
+      t.razorpay_order_id,
+      t.razorpay_payment_id,
       t.created_at,
-      u.full_name AS customer_name,
-      s.service_name
+      CASE 
+        WHEN t.transaction_type = 'service' THEN s.service_name
+        WHEN t.transaction_type = 'order' THEN 'Product Order'
+      END AS reference_name,
+      CASE 
+        WHEN t.transaction_type = 'service' THEN b.id
+        WHEN t.transaction_type = 'order' THEN o.id
+      END AS reference_id
     FROM transactions t
-    JOIN bookings b ON t.booking_id = b.id
-    JOIN services s ON b.service_id = s.id
-    JOIN users u ON b.customer_id = u.id
-    WHERE s.vendor_id = ?
+    LEFT JOIN bookings b ON t.booking_id = b.id
+    LEFT JOIN services s ON b.service_id = s.id
+    LEFT JOIN orders o ON t.order_id = o.id
+    LEFT JOIN order_items oi ON o.id = oi.order_id
+    WHERE 
+      (s.vendor_id = ? AND t.transaction_type = 'service')
+      OR (oi.vendor_id = ? AND t.transaction_type = 'order')
+    GROUP BY t.id
     ORDER BY t.id DESC
   `;
 
-  db.query(sql, [vendor_id], (err, results) => {
+  db.query(sql, [vendor_id, vendor_id], (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
-
     res.json({
       status: true,
       message: 'Vendor transactions fetched successfully',
@@ -347,6 +357,7 @@ router.get('/vendor/transactions', authenticate, (req, res) => {
     });
   });
 });
+
 
 
 // ✅ Get Shop API
