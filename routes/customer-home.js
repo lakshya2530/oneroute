@@ -557,7 +557,7 @@ router.get('/customer/shops', (req, res) => {
       res.json({ message: 'Item removed from cart' });
     });
   });
-  
+
   router.post('/place-order', authenticate, (req, res) => {
     const customer_id = req.user.id;
   
@@ -565,49 +565,184 @@ router.get('/customer/shops', (req, res) => {
       `SELECT c.*, p.name, p.selling_price, p.vendor_id 
        FROM cart c 
        JOIN products p ON c.product_id = p.id 
-       WHERE c.customer_id = ?`, [customer_id],
+       WHERE c.customer_id = ?`, 
+      [customer_id],
       (err, cartItems) => {
         if (err) return res.status(500).json({ error: err.message });
         if (cartItems.length === 0) return res.status(400).json({ error: 'Cart is empty' });
   
-        const order_number = 'ORD' + Date.now();
-        const firstItem = cartItems[0];
-        const orderData = {
-          order_number,
-          customer_id,
-          status: 'placed',
-          order_date: new Date(),
-          product_id: firstItem.product_id,  // new field
-          vendor_id: firstItem.vendor_id 
+        // Step 1: Calculate total
+        const totalAmount = cartItems.reduce((sum, item) => sum + (item.selling_price * (item.quantity || 1)), 0);
+  
+        // Step 2: Create Razorpay order
+        const options = {
+          amount: totalAmount * 100, // paise
+          currency: "INR",
+          receipt: `order_${Date.now()}`
         };
   
-        db.query('INSERT INTO orders SET ?', orderData, (err, result) => {
-          if (err) return res.status(500).json({ error: err.message });
+        razorpay.orders.create(options, (err2, razorpayOrder) => {
+          if (err2) return res.status(500).json({ error: 'Razorpay order creation failed', details: err2 });
   
-          const order_id = result.insertId;
+          // Step 3: Insert into orders table (pending_payment)
+          const order_number = 'ORD' + Date.now();
+          const firstItem = cartItems[0];
   
-          const items = cartItems.map(item => ([
-            order_id,
-            item.product_id,
-            item.vendor_id,
-            item.quantity || 1,
-            item.selling_price
-          ]));
+          const orderData = {
+            order_number,
+            customer_id,
+            status: 'pending_payment',   // 👈 not placed yet
+            order_date: new Date(),
+            product_id: firstItem.product_id,
+            vendor_id: firstItem.vendor_id,
+            razorpay_order_id: razorpayOrder.id,
+            amount: totalAmount
+          };
   
-          db.query(
-            `INSERT INTO order_items (order_id, product_id, vendor_id, quantity, price) VALUES ?`,
-            [items],
-            (err) => {
-              if (err) return res.status(500).json({ error: err.message });
+          db.query('INSERT INTO orders SET ?', orderData, (err3, result) => {
+            if (err3) return res.status(500).json({ error: err3.message });
   
-              db.query('DELETE FROM cart WHERE customer_id = ?', [customer_id]);
-              res.json({ message: 'Order placed', order_number, total_items: cartItems.length });
-            }
-          );
+            const order_id = result.insertId;
+  
+            // Step 4: Insert order items
+            const items = cartItems.map(item => ([
+              order_id,
+              item.product_id,
+              item.vendor_id,
+              item.quantity || 1,
+              item.selling_price
+            ]));
+  
+            db.query(
+              `INSERT INTO order_items (order_id, product_id, vendor_id, quantity, price) VALUES ?`,
+              [items],
+              (err4) => {
+                if (err4) return res.status(500).json({ error: err4.message });
+  
+                // Step 5: Insert transaction
+                const txnSql = `
+                  INSERT INTO transactions (order_id, customer_id, razorpay_order_id, amount, status)
+                  VALUES (?, ?, ?, ?, 'pending','order')
+                `;
+                db.query(txnSql, [order_id, customer_id, razorpayOrder.id, totalAmount]);
+  
+                // Step 6: Clear cart
+                db.query('DELETE FROM cart WHERE customer_id = ?', [customer_id]);
+  
+                // Step 7: Send response
+                res.json({
+                  status: true,
+                  message: 'Razorpay order created. Proceed with payment.',
+                  order_id,
+                  order_number,
+                  razorpay_order: razorpayOrder,
+                  total_amount: totalAmount,
+                  status_value: 'pending_payment'
+                });
+              }
+            );
+          });
         });
       }
     );
   });
+
+
+  router.post("/verify-order-payment", authenticate, (req, res) => {
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature, order_id } = req.body;
+    const customer_id = req.user.id;
+  
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature || !order_id) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+  
+    const body = razorpay_order_id + "|" + razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+      .update(body.toString())
+      .digest("hex");
+  
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: "Invalid payment signature" });
+    }
+  
+    // Update order + transaction
+    const updateOrder = `
+      UPDATE orders 
+      SET status = 'placed', razorpay_payment_id = ?, razorpay_signature = ?
+      WHERE id = ? AND customer_id = ?
+    `;
+    db.query(updateOrder, [razorpay_payment_id, razorpay_signature, order_id, customer_id], (err) => {
+      if (err) return res.status(500).json({ error: err.message });
+  
+      const updateTxn = `
+        UPDATE transactions 
+        SET razorpay_payment_id = ?, razorpay_signature = ?, status = 'success'
+        WHERE order_id = ? AND customer_id = ?
+      `;
+      db.query(updateTxn, [razorpay_payment_id, razorpay_signature, order_id, customer_id]);
+  
+      res.json({
+        status: true,
+        message: "Order payment verified successfully",
+        order_id,
+        razorpay_payment_id,
+        status_value: "placed"
+      });
+    });
+  });
+  
+  
+  // router.post('/place-order', authenticate, (req, res) => {
+  //   const customer_id = req.user.id;
+  
+  //   db.query(
+  //     `SELECT c.*, p.name, p.selling_price, p.vendor_id 
+  //      FROM cart c 
+  //      JOIN products p ON c.product_id = p.id 
+  //      WHERE c.customer_id = ?`, [customer_id],
+  //     (err, cartItems) => {
+  //       if (err) return res.status(500).json({ error: err.message });
+  //       if (cartItems.length === 0) return res.status(400).json({ error: 'Cart is empty' });
+  
+  //       const order_number = 'ORD' + Date.now();
+  //       const firstItem = cartItems[0];
+  //       const orderData = {
+  //         order_number,
+  //         customer_id,
+  //         status: 'placed',
+  //         order_date: new Date(),
+  //         product_id: firstItem.product_id,  // new field
+  //         vendor_id: firstItem.vendor_id 
+  //       };
+  
+  //       db.query('INSERT INTO orders SET ?', orderData, (err, result) => {
+  //         if (err) return res.status(500).json({ error: err.message });
+  
+  //         const order_id = result.insertId;
+  
+  //         const items = cartItems.map(item => ([
+  //           order_id,
+  //           item.product_id,
+  //           item.vendor_id,
+  //           item.quantity || 1,
+  //           item.selling_price
+  //         ]));
+  
+  //         db.query(
+  //           `INSERT INTO order_items (order_id, product_id, vendor_id, quantity, price) VALUES ?`,
+  //           [items],
+  //           (err) => {
+  //             if (err) return res.status(500).json({ error: err.message });
+  
+  //             db.query('DELETE FROM cart WHERE customer_id = ?', [customer_id]);
+  //             res.json({ message: 'Order placed', order_number, total_items: cartItems.length });
+  //           }
+  //         );
+  //       });
+  //     }
+  //   );
+  // });
   
 
   router.get('/customer-orders', authenticate, (req, res) => {
@@ -1012,7 +1147,7 @@ router.post("/book-service", authenticate, async (req, res) => {
     // Step 4: Insert transaction entry
     const insertTxn = `
       INSERT INTO transactions (booking_id, customer_id, razorpay_order_id, amount, status)
-      VALUES (?, ?, ?, ?, 'pending')
+      VALUES (?, ?, ?, ?, 'pending','service')
     `;
     await db.promise().query(insertTxn, [booking_id, customer_id, order.id, servicePrice]);
 
@@ -1090,32 +1225,38 @@ router.get('/customer/transactions', authenticate, (req, res) => {
   const sql = `
     SELECT 
       t.id AS transaction_id,
-      t.booking_id,
+      t.transaction_type,
+      t.amount,
+      t.status,
       t.razorpay_order_id,
       t.razorpay_payment_id,
-      t.amount,
-      t.currency,
-      t.status,
       t.created_at,
-      s.service_name,
-      b.status AS booking_status
+      CASE 
+        WHEN t.transaction_type = 'service' THEN s.service_name
+        WHEN t.transaction_type = 'order' THEN 'Product Order'
+      END AS reference_name,
+      CASE 
+        WHEN t.transaction_type = 'service' THEN b.id
+        WHEN t.transaction_type = 'order' THEN o.id
+      END AS reference_id
     FROM transactions t
-    JOIN bookings b ON t.booking_id = b.id
-    JOIN services s ON b.service_id = s.id
+    LEFT JOIN bookings b ON t.booking_id = b.id
+    LEFT JOIN services s ON b.service_id = s.id
+    LEFT JOIN orders o ON t.order_id = o.id
     WHERE t.customer_id = ?
     ORDER BY t.id DESC
   `;
 
   db.query(sql, [customer_id], (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
-
     res.json({
       status: true,
-      message: 'Transaction history fetched successfully',
+      message: 'Customer transactions fetched successfully',
       data: results
     });
   });
 });
+
 
 
 router.get('/customer/bookings', authenticate, (req, res) => {
