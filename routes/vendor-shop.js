@@ -784,6 +784,7 @@ router.get('/vendor/product-requests', authenticate, (req, res) => {
           estimated_delivery_days: row.estimated_delivery_days,
           category_id: row.category_id,
           subcategory_id: row.subcategory_id,
+          sub_bid_price: row.sub_bid_price,
           already_bid: !!row.already_bid,
           paid_but_not_bid: !!row.paid_but_not_bid,
           products: []
