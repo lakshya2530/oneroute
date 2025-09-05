@@ -418,12 +418,12 @@ router.delete('/service-category-delete/:id', (req, res) => {
 });
 
 router.post('/service-subcategory-create', upload.single('image'), (req, res) => {
-  const { category_id, name } = req.body;
+  const { category_id, name,bid_price } = req.body;
   const image = req.file?.filename || '';
 
   db.query(
-    'INSERT INTO service_subcategories (category_id, name, image) VALUES (?, ?, ?)',
-    [category_id, name, image],
+    'INSERT INTO service_subcategories (category_id, name,bid_price, image) VALUES (?, ?, ?)',
+    [category_id, name,bid_price, image],
     (err, result) => {
       if (err) return res.status(500).json({ error: err.message });
       res.json({ message: 'Service subcategory created', id: result.insertId });
@@ -433,10 +433,10 @@ router.post('/service-subcategory-create', upload.single('image'), (req, res) =>
 
 router.put('/service-subcategory-update/:id', upload.single('image'), (req, res) => {
   const { id } = req.params;
-  const { category_id, name } = req.body;
+  const { category_id, name,bid_price } = req.body;
   const image = req.file?.filename;
 
-  const fields = { category_id, name };
+  const fields = { category_id, name,bid_price };
   if (image) fields.image = image;
 
   db.query('UPDATE service_subcategories SET ? WHERE id = ?', [fields, id], (err) => {

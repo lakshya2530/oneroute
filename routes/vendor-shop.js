@@ -508,6 +508,87 @@ router.get('/vendor-orders', authenticate, (req, res) => {
   });
   
 
+  router.post('/product-request-set/:id/bid-payment', authenticate, (req, res) => {
+    const vendor_id = req.user.id;   // vendor paying
+    const { id: request_set_id } = req.params;
+  
+    // Step 1: Get sub_bid_price from request set
+    const sql = `SELECT sub_bid_price FROM product_request_sets WHERE id = ?`;
+    db.query(sql, [request_set_id], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (result.length === 0) return res.status(404).json({ error: "Request set not found" });
+  
+      const bidPrice = result[0].sub_bid_price;
+  
+      // Step 2: Create Razorpay Order
+      const options = {
+        amount: bidPrice * 100, // Razorpay expects amount in paise
+        currency: "INR",
+        receipt: `bid_${request_set_id}_${Date.now()}`
+      };
+  
+      razorpay.orders.create(options, (err2, order) => {
+        if (err2) return res.status(500).json({ error: "Razorpay order creation failed", details: err2 });
+  
+        // Step 3: Insert into transactions table
+        const txnSql = `
+          INSERT INTO transactions 
+          (transaction_type, request_set_id, vendor_id, razorpay_order_id, amount, currency, status) 
+          VALUES ('bid', ?, ?, ?, ?, 'INR', 'pending')
+        `;
+        db.query(txnSql, [request_set_id, vendor_id, order.id, bidPrice], (err3, txnResult) => {
+          if (err3) return res.status(500).json({ error: err3.message });
+  
+          res.json({
+            status: true,
+            message: "Bid payment initiated. Complete payment with Razorpay.",
+            razorpay_order: order,
+            transaction_id: txnResult.insertId,
+            request_set_id,
+            vendor_id,
+            amount: bidPrice
+          });
+        });
+      });
+    });
+  });
+
+  router.post('/bid-payment/verify', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+  
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ error: "Payment verification failed. Missing params." });
+    }
+  
+    // Step 1: Generate expected signature
+    const hmac = crypto.createHmac("sha256", process.env.RAZORPAY_KEY_SECRET);
+    hmac.update(razorpay_order_id + "|" + razorpay_payment_id);
+    const expectedSignature = hmac.digest("hex");
+  
+    if (expectedSignature !== razorpay_signature) {
+      return res.status(400).json({ error: "Invalid payment signature" });
+    }
+  
+    // Step 2: Update transaction record
+    const updateSql = `
+      UPDATE transactions 
+      SET razorpay_payment_id=?, razorpay_signature=?, status='success'
+      WHERE razorpay_order_id=? AND vendor_id=? AND transaction_type='bid'
+    `;
+    db.query(updateSql, [razorpay_payment_id, razorpay_signature, razorpay_order_id, vendor_id], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (result.affectedRows === 0) return res.status(404).json({ error: "Transaction not found" });
+  
+      res.json({
+        status: true,
+        message: "Bid payment verified successfully",
+        razorpay_order_id,
+        razorpay_payment_id
+      });
+    });
+  });
+
   router.post('/product-request-set/:id/bid', authenticate, (req, res) => {
     const vendor_id = req.user.id;
     const { id: request_set_id } = req.params;
@@ -536,26 +617,26 @@ router.get('/vendor-orders', authenticate, (req, res) => {
   });
 
   // Withdraw a vendor bid
-router.post('/product-bids/:bid_id/withdraw', authenticate, (req, res) => {
-  const vendor_id = req.user.id;
-  const { bid_id } = req.params;
+  router.post('/product-bids/:bid_id/withdraw', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+    const { bid_id } = req.params;
 
-  const sql = `
-    UPDATE product_bids 
-    SET status = 'withdrawn' 
-    WHERE id = ? AND vendor_id = ?
-  `;
+    const sql = `
+      UPDATE product_bids 
+      SET status = 'withdrawn' 
+      WHERE id = ? AND vendor_id = ?
+    `;
 
-  db.query(sql, [bid_id, vendor_id], (err, result) => {
-    if (err) return res.status(500).json({ error: err.message });
+    db.query(sql, [bid_id, vendor_id], (err, result) => {
+      if (err) return res.status(500).json({ error: err.message });
 
-    if (result.affectedRows === 0) {
-      return res.status(400).json({ error: "Bid not found or already withdrawn" });
-    }
+      if (result.affectedRows === 0) {
+        return res.status(400).json({ error: "Bid not found or already withdrawn" });
+      }
 
-    res.json({ message: "Bid withdrawn successfully" });
+      res.json({ message: "Bid withdrawn successfully" });
+    });
   });
-});
 
 
   // router.get('/vendor/product-requests', authenticate, (req, res) => {
@@ -605,7 +686,63 @@ router.post('/product-bids/:bid_id/withdraw', authenticate, (req, res) => {
   //   });
   // });
   
-  router.get('/vendor/product-requests', authenticate, (req, res) => {
+//   router.get('/vendor/product-requests', authenticate, (req, res) => {
+//   const vendor_id = req.user.id;
+
+//   const sql = `
+//     SELECT prs.id AS request_set_id, prs.request_title, prs.request_description,
+//            prs.min_price, prs.max_price, prs.estimated_delivery_days,
+//            prs.category_id, prs.subcategory_id,
+//            pr.id AS product_id, pr.product_title, pr.product_description, pr.images,
+//            IF(pb.id IS NOT NULL, 1, 0) AS already_bid
+//     FROM product_request_sets prs
+//     JOIN product_request_items pr ON prs.id = pr.request_set_id
+//     JOIN users v ON v.id = ?
+//     LEFT JOIN product_bids pb 
+//            ON pb.request_set_id = prs.id AND pb.vendor_id = v.id
+//     WHERE prs.category_id = v.category_id
+//       AND FIND_IN_SET(prs.subcategory_id, v.subcategory_ids)
+//     ORDER BY prs.created_at DESC
+//   `;
+
+//   db.query(sql, [vendor_id], (err, results) => {
+//     if (err) return res.status(500).json({ error: err.message });
+
+//     const requestMap = {};
+//     results.forEach(row => {
+//       if (!requestMap[row.request_set_id]) {
+//         requestMap[row.request_set_id] = {
+//           request_set_id: row.request_set_id,
+//           request_title: row.request_title,
+//           request_description: row.request_description,
+//           min_price: row.min_price,
+//           max_price: row.max_price,
+//           estimated_delivery_days: row.estimated_delivery_days,
+//           category_id: row.category_id,
+//           subcategory_id: row.subcategory_id,
+//           already_bid: !!row.already_bid,
+//           products: []
+//         };
+//       }
+//       requestMap[row.request_set_id].products.push({
+//         product_id: row.product_id,
+//         product_title: row.product_title,
+//         product_description: row.product_description,
+//         images: (() => {
+//           try {
+//             return JSON.parse(row.images || "[]");
+//           } catch {
+//             return [];
+//           }
+//         })()
+//       });
+//     });
+
+//     res.json(Object.values(requestMap));
+//   });
+// });
+
+router.get('/vendor/product-requests', authenticate, (req, res) => {
   const vendor_id = req.user.id;
 
   const sql = `
@@ -613,12 +750,18 @@ router.post('/product-bids/:bid_id/withdraw', authenticate, (req, res) => {
            prs.min_price, prs.max_price, prs.estimated_delivery_days,
            prs.category_id, prs.subcategory_id,
            pr.id AS product_id, pr.product_title, pr.product_description, pr.images,
-           IF(pb.id IS NOT NULL, 1, 0) AS already_bid
+           IF(pb.id IS NOT NULL, 1, 0) AS already_bid,
+           IF(t.id IS NOT NULL AND pb.id IS NULL, 1, 0) AS paid_but_not_bid
     FROM product_request_sets prs
     JOIN product_request_items pr ON prs.id = pr.request_set_id
     JOIN users v ON v.id = ?
     LEFT JOIN product_bids pb 
            ON pb.request_set_id = prs.id AND pb.vendor_id = v.id
+    LEFT JOIN transactions t 
+           ON t.request_set_id = prs.id 
+          AND t.vendor_id = v.id 
+          AND t.transaction_type = 'bid' 
+          AND t.status = 'success'
     WHERE prs.category_id = v.category_id
       AND FIND_IN_SET(prs.subcategory_id, v.subcategory_ids)
     ORDER BY prs.created_at DESC
@@ -640,6 +783,7 @@ router.post('/product-bids/:bid_id/withdraw', authenticate, (req, res) => {
           category_id: row.category_id,
           subcategory_id: row.subcategory_id,
           already_bid: !!row.already_bid,
+          paid_but_not_bid: !!row.paid_but_not_bid,
           products: []
         };
       }
@@ -660,6 +804,7 @@ router.post('/product-bids/:bid_id/withdraw', authenticate, (req, res) => {
     res.json(Object.values(requestMap));
   });
 });
+
 
 
 router.get('/vendor/my-bids', authenticate, (req, res) => {
