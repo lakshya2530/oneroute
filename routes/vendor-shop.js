@@ -4,6 +4,8 @@ const multer = require('multer');
 const path = require('path');
 const db = require('../db/connection');
 const authenticate = require('../middleware/auth');
+const razorpay = require("../config/razorpay"); // import config
+const crypto = require("crypto");
 
 // 🔧 Multer setup
 const storage = multer.diskStorage({
