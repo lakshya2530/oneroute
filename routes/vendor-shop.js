@@ -750,7 +750,7 @@ router.get('/vendor/product-requests', authenticate, (req, res) => {
   const sql = `
     SELECT prs.id AS request_set_id, prs.request_title, prs.request_description,
            prs.min_price, prs.max_price, prs.estimated_delivery_days,
-           prs.category_id, prs.subcategory_id,
+           prs.category_id, prs.subcategory_id,prs.sub_bid_price,
            pr.id AS product_id, pr.product_title, pr.product_description, pr.images,
            IF(pb.id IS NOT NULL, 1, 0) AS already_bid,
            IF(t.id IS NOT NULL AND pb.id IS NULL, 1, 0) AS paid_but_not_bid
