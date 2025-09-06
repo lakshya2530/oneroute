@@ -751,10 +751,11 @@ router.get('/vendor/product-requests', authenticate, (req, res) => {
   const sql = `
     SELECT prs.id AS request_set_id, prs.request_title, prs.request_description,
            prs.min_price, prs.max_price, prs.estimated_delivery_days,
-           prs.category_id, prs.subcategory_id,prs.sub_bid_price,
+           prs.category_id, prs.subcategory_id, prs.sub_bid_price,
            pr.id AS product_id, pr.product_title, pr.product_description, pr.images,
            IF(pb.id IS NOT NULL, 1, 0) AS already_bid,
-           IF(t.id IS NOT NULL AND pb.id IS NULL, 1, 0) AS paid_but_not_bid
+           IF(t.id IS NOT NULL AND pb.id IS NULL, 1, 0) AS paid_but_not_bid,
+           vr.free_bids
     FROM product_request_sets prs
     JOIN product_request_items pr ON prs.id = pr.request_set_id
     JOIN users v ON v.id = ?
@@ -765,6 +766,8 @@ router.get('/vendor/product-requests', authenticate, (req, res) => {
           AND t.vendor_id = v.id 
           AND t.transaction_type = 'bid' 
           AND t.status = 'success'
+    LEFT JOIN vendor_rewards vr
+           ON vr.vendor_id = v.id
     WHERE prs.category_id = v.category_id
       AND FIND_IN_SET(prs.subcategory_id, v.subcategory_ids)
     ORDER BY prs.created_at DESC
@@ -788,6 +791,7 @@ router.get('/vendor/product-requests', authenticate, (req, res) => {
           sub_bid_price: row.sub_bid_price,
           already_bid: !!row.already_bid,
           paid_but_not_bid: !!row.paid_but_not_bid,
+          free_bids: row.free_bids || 0,   // ✅ show free bids
           products: []
         };
       }
@@ -808,6 +812,7 @@ router.get('/vendor/product-requests', authenticate, (req, res) => {
     res.json(Object.values(requestMap));
   });
 });
+
 
 
 
