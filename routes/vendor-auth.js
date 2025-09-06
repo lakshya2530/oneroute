@@ -246,13 +246,8 @@ router.post("/register-user", (req, res) => {
 
   const userExistsSQL = "SELECT * FROM users WHERE email = ? OR phone = ?";
   db.query(userExistsSQL, [email, phone], (existsErr, users) => {
-    if (existsErr) {
-      return res.status(500).json({ error: "User check failed", details: existsErr.message });
-    }
-
-    if (users.length > 0) {
-      return res.status(400).json({ error: "User with this email or phone already exists" });
-    }
+    if (existsErr) return res.status(500).json({ error: "User check failed", details: existsErr.message });
+    if (users.length > 0) return res.status(400).json({ error: "User with this email or phone already exists" });
 
     db.query(emailSQL, [email], (err1, emailRows) => {
       if (err1) return res.status(500).json({ error: "Email check failed" });
@@ -267,10 +262,9 @@ router.post("/register-user", (req, res) => {
         bcrypt.hash(password, 10, (hashErr, hashedPassword) => {
           if (hashErr) return res.status(500).json({ error: "Hashing error" });
 
-          // ✅ Generate referral code for this user
           const newReferralCode = generateReferralCode();
-
           let referred_by = null;
+
           const handleInsert = () => {
             const insertSQL = `
               INSERT INTO users (email, phone, password, is_email_verified, is_phone_verified, registration_step, user_type, referral_code, referred_by)
@@ -279,11 +273,11 @@ router.post("/register-user", (req, res) => {
             db.query(insertSQL, [email, phone, hashedPassword, newReferralCode, referred_by], (insertErr, result) => {
               if (insertErr) return res.status(500).json({ error: "Insert error" });
 
-              res.json({ 
-                success: true, 
-                message: "User registered successfully", 
+              res.json({
+                success: true,
+                message: "User registered successfully",
                 user_id: result.insertId,
-                referral_code: newReferralCode   // ✅ return referral code so user can share it
+                referral_code: newReferralCode
               });
             });
           };
@@ -296,43 +290,21 @@ router.post("/register-user", (req, res) => {
               if (refRows.length > 0) {
                 referred_by = refRows[0].id;
 
-                // ✅ handle referral counting and free bid reward (same as before)
-                const totalReferralsQuery = `
-                  SELECT COUNT(*) AS total_referrals FROM users WHERE referred_by = ?
+                // ✅ always insert/update vendor_rewards for referrer
+                const updateReward = `
+                  INSERT INTO vendor_rewards (vendor_id, free_bids, referrals_counted)
+                  VALUES (?, 0, 1)
+                  ON DUPLICATE KEY UPDATE 
+                    referrals_counted = referrals_counted + 1,
+                    free_bids = free_bids + IF(MOD(referrals_counted + 1, 10) = 0, 1, 0)
                 `;
-                db.query(totalReferralsQuery, [referred_by], (err3, referralResult) => {
-                  if (err3) console.error("Referral count error:", err3);
-
-                  const totalReferrals = referralResult[0].total_referrals;
-
-                  const rewardQuery = `SELECT free_bids, referrals_counted 
-                                       FROM vendor_rewards 
-                                       WHERE vendor_id = ?`;
-                  db.query(rewardQuery, [referred_by], (err4, rewardResult) => {
-                    if (err4) console.error("Reward fetch error:", err4);
-
-                    let referralsCounted = 0;
-                    if (rewardResult.length > 0) {
-                      referralsCounted = rewardResult[0].referrals_counted;
-                    }
-
-                    const uncounted = totalReferrals - referralsCounted;
-                    if (uncounted >= 10) {
-                      const newFreeBids = Math.floor(uncounted / 10);
-                      const updateReward = `
-                        INSERT INTO vendor_rewards (vendor_id, free_bids, referrals_counted)
-                        VALUES (?, ?, ?)
-                        ON DUPLICATE KEY UPDATE 
-                          free_bids = free_bids + VALUES(free_bids),
-                          referrals_counted = referrals_counted + ?
-                      `;
-                      db.query(updateReward, [referred_by, newFreeBids, newFreeBids * 10, newFreeBids * 10]);
-                    }
-                  });
+                db.query(updateReward, [referred_by], (rwErr) => {
+                  if (rwErr) console.error("Reward update failed:", rwErr);
+                  handleInsert();
                 });
+              } else {
+                handleInsert();
               }
-
-              handleInsert();
             });
           } else {
             handleInsert();

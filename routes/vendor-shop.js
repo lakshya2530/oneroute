@@ -42,6 +42,7 @@ router.post(
       owner_name,
       shop_document: files?.shop_document?.[0]?.filename || '',
       additional_document: files?.additional_document?.[0]?.filename || ''
+
     };
 
     db.query('INSERT INTO vendor_shops SET ?', data, (err, result) => {
