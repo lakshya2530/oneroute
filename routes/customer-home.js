@@ -1354,7 +1354,7 @@ router.get('/customer/bookings', authenticate, (req, res) => {
 
 
 router.post('/add-address', authenticate, (req, res) => {
-  const { name, description } = req.body;
+  const { name, description,latitude,longitude } = req.body;
   const customer_id = req.user.id;
 
   if (!name || !description) {
@@ -1362,10 +1362,10 @@ router.post('/add-address', authenticate, (req, res) => {
   }
 
   const sql = `
-    INSERT INTO customer_addresses (customer_id, name, description)
-    VALUES (?, ?, ?)
+    INSERT INTO customer_addresses (customer_id, name, description,latitude,longitude)
+    VALUES (?, ?, ?, ?, ?)
   `;
-  db.query(sql, [customer_id, name, description], (err, result) => {
+  db.query(sql, [customer_id, name, description,latitude,longitude], (err, result) => {
     if (err) return res.status(500).json({ error: err.message });
 
     res.json({
@@ -1382,7 +1382,7 @@ router.get('/list-addresses', authenticate, (req, res) => {
   const customer_id = req.user.id;
 
   const sql = `
-    SELECT id, name, description, created_at 
+    SELECT id, name, description,latitude,longitude, created_at 
     FROM customer_addresses 
     WHERE customer_id = ? 
     ORDER BY id DESC
