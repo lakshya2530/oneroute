@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const path = require('path');
 const verifyToken = require('../middleware/auth');
+const authenticate = require('../middleware/auth');
 
 const saltRounds = 10;
 
