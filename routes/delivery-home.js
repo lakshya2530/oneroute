@@ -216,4 +216,79 @@ router.get('/wallet', authenticate, (req, res) => {
 });
 
 
+router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
+  const partner_id = req.user.id;
+
+  const sql = `
+    SELECT dr.id AS request_id, dr.order_id, dr.customer_id, dr.status,
+           o.order_number, o.amount, o.customer_address, o.customer_city, o.customer_pincode
+    FROM delivery_request_partners drp
+    JOIN delivery_requests dr ON drp.request_id = dr.id
+    JOIN orders o ON dr.order_id = o.id
+    WHERE drp.partner_id = ? AND drp.status = 'pending' AND dr.status = 'pending'
+  `;
+
+  db.query(sql, [partner_id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    res.json(rows);
+  });
+});
+
+router.post('/partner/respond-request', authenticate, (req, res) => {
+  const partner_id = req.user.id;
+  const { request_id, action } = req.body; // action = "accept" or "reject"
+
+  if (!['accept','reject'].includes(action)) {
+    return res.status(400).json({ error: "Invalid action" });
+  }
+
+  // If accept → check if already assigned
+  if (action === 'accept') {
+    const sqlCheck = `SELECT * FROM delivery_requests WHERE id = ? AND status = 'pending'`;
+    db.query(sqlCheck, [request_id], (err, rows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (rows.length === 0) return res.status(400).json({ error: "Request already assigned or expired" });
+
+      // Assign this partner
+      const sqlUpdateReq = `
+        UPDATE delivery_requests 
+        SET assigned_partner_id = ?, status = 'accepted' 
+        WHERE id = ?
+      `;
+      db.query(sqlUpdateReq, [partner_id, request_id], (err2) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+
+        // Reject all others
+        const sqlRejectOthers = `
+          UPDATE delivery_request_partners 
+          SET status = 'rejected' 
+          WHERE request_id = ? AND partner_id != ?
+        `;
+        db.query(sqlRejectOthers, [request_id, partner_id]);
+
+        // Mark this one as accepted
+        const sqlAccept = `
+          UPDATE delivery_request_partners 
+          SET status = 'accepted' 
+          WHERE request_id = ? AND partner_id = ?
+        `;
+        db.query(sqlAccept, [request_id, partner_id]);
+
+        res.json({ success: true, message: "Request accepted successfully" });
+      });
+    });
+  } else {
+    // Just mark rejected
+    const sqlReject = `
+      UPDATE delivery_request_partners 
+      SET status = 'rejected' 
+      WHERE request_id = ? AND partner_id = ?
+    `;
+    db.query(sqlReject, [request_id, partner_id], (err3) => {
+      if (err3) return res.status(500).json({ error: err3.message });
+      res.json({ success: true, message: "Request rejected" });
+    });
+  }
+});
+
 module.exports = router;

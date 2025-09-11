@@ -560,92 +560,207 @@ router.get('/customer/shops', (req, res) => {
 
   router.post('/place-order', authenticate, (req, res) => {
     const customer_id = req.user.id;
+    const { address_id } = req.body;
   
-    db.query(
-      `SELECT c.*, p.name, p.selling_price, p.vendor_id 
-       FROM cart c 
-       JOIN products p ON c.product_id = p.id 
-       WHERE c.customer_id = ?`, 
-      [customer_id],
-      (err, cartItems) => {
-        if (err) return res.status(500).json({ error: err.message });
-        if (cartItems.length === 0) return res.status(400).json({ error: 'Cart is empty' });
+    if (!address_id) {
+      return res.status(400).json({ error: "Address ID is required" });
+    }
   
-        // Step 1: Calculate total
-        const totalAmount = cartItems.reduce((sum, item) => sum + (item.selling_price * (item.quantity || 1)), 0);
+    // Step A: Get Address
+    const addrSQL = `SELECT * FROM customer_addresses WHERE id = ? AND customer_id = ?`;
+    db.query(addrSQL, [address_id, customer_id], (addrErr, addrRows) => {
+      if (addrErr) return res.status(500).json({ error: addrErr.message });
+      if (addrRows.length === 0) return res.status(404).json({ error: "Address not found" });
   
-        // Step 2: Create Razorpay order
-        const options = {
-          amount: totalAmount * 100, // paise
-          currency: "INR",
-          receipt: `order_${Date.now()}`
-        };
+      const address = addrRows[0];
   
-        razorpay.orders.create(options, (err2, razorpayOrder) => {
-          if (err2) return res.status(500).json({ error: 'Razorpay order creation failed', details: err2 });
+      // Step B: Fetch Cart
+      db.query(
+        `SELECT c.*, p.name, p.selling_price, p.vendor_id 
+         FROM cart c 
+         JOIN products p ON c.product_id = p.id 
+         WHERE c.customer_id = ?`, 
+        [customer_id],
+        (err, cartItems) => {
+          if (err) return res.status(500).json({ error: err.message });
+          if (cartItems.length === 0) return res.status(400).json({ error: 'Cart is empty' });
   
-          // Step 3: Insert into orders table (pending_payment)
-          const order_number = 'ORD' + Date.now();
-          const firstItem = cartItems[0];
+          // Step 1: Calculate total
+          const totalAmount = cartItems.reduce((sum, item) => sum + (item.selling_price * (item.quantity || 1)), 0);
   
-          const orderData = {
-            order_number,
-            customer_id,
-            status: 'pending_payment',   // 👈 not placed yet
-            order_date: new Date(),
-            product_id: firstItem.product_id,
-            vendor_id: firstItem.vendor_id,
-            razorpay_order_id: razorpayOrder.id,
-            amount: totalAmount
+          // Step 2: Create Razorpay order
+          const options = {
+            amount: totalAmount * 100, // paise
+            currency: "INR",
+            receipt: `order_${Date.now()}`
           };
   
-          db.query('INSERT INTO orders SET ?', orderData, (err3, result) => {
-            if (err3) return res.status(500).json({ error: err3.message });
+          razorpay.orders.create(options, (err2, razorpayOrder) => {
+            if (err2) return res.status(500).json({ error: 'Razorpay order creation failed', details: err2 });
   
-            const order_id = result.insertId;
+            // Step 3: Insert into orders table (pending_payment)
+            const order_number = 'ORD' + Date.now();
+            const firstItem = cartItems[0];
   
-            // Step 4: Insert order items
-            const items = cartItems.map(item => ([
-              order_id,
-              item.product_id,
-              item.vendor_id,
-              item.quantity || 1,
-              item.selling_price
-            ]));
+            const orderData = {
+              order_number,
+              customer_id,
+              status: 'pending_payment',
+              order_date: new Date(),
+              product_id: firstItem.product_id,
+              vendor_id: firstItem.vendor_id,
+              razorpay_order_id: razorpayOrder.id,
+              amount: totalAmount,
   
-            db.query(
-              `INSERT INTO order_items (order_id, product_id, vendor_id, quantity, price) VALUES ?`,
-              [items],
-              (err4) => {
-                if (err4) return res.status(500).json({ error: err4.message });
+              // ✅ save address details
+              address_id: address.id,
+              customer_name: address.name,
+              customer_phone: address.phone,
+              customer_address: address.address,
+              customer_city: address.city,
+              customer_state: address.state,
+              customer_pincode: address.pincode,
+              customer_latitude: address.latitude,
+              customer_longitude: address.longitude
+            };
   
-                // Step 5: Insert transaction
-                const txnSql = `
-                  INSERT INTO transactions (order_id, customer_id, razorpay_order_id, amount, status, transaction_type)
-                  VALUES (?, ?, ?, ?, 'pending','order')
-                `;
-                db.query(txnSql, [order_id, customer_id, razorpayOrder.id, totalAmount]);
+            db.query('INSERT INTO orders SET ?', orderData, (err3, result) => {
+              if (err3) return res.status(500).json({ error: err3.message });
   
-                // Step 6: Clear cart
-                db.query('DELETE FROM cart WHERE customer_id = ?', [customer_id]);
+              const order_id = result.insertId;
   
-                // Step 7: Send response
-                res.json({
-                  status: true,
-                  message: 'Razorpay order created. Proceed with payment.',
-                  order_id,
-                  order_number,
-                  razorpay_order: razorpayOrder,
-                  total_amount: totalAmount,
-                  status_value: 'pending_payment'
-                });
-              }
-            );
+              // Step 4: Insert order items
+              const items = cartItems.map(item => ([
+                order_id,
+                item.product_id,
+                item.vendor_id,
+                item.quantity || 1,
+                item.selling_price
+              ]));
+  
+              db.query(
+                `INSERT INTO order_items (order_id, product_id, vendor_id, quantity, price) VALUES ?`,
+                [items],
+                (err4) => {
+                  if (err4) return res.status(500).json({ error: err4.message });
+  
+                  // Step 5: Insert transaction
+                  const txnSql = `
+                    INSERT INTO transactions (order_id, customer_id, razorpay_order_id, amount, status, transaction_type)
+                    VALUES (?, ?, ?, ?, 'pending','order')
+                  `;
+                  db.query(txnSql, [order_id, customer_id, razorpayOrder.id, totalAmount]);
+  
+                  // Step 6: Clear cart
+                  db.query('DELETE FROM cart WHERE customer_id = ?', [customer_id]);
+  
+                  // Step 7: Send response
+                  res.json({
+                    status: true,
+                    message: 'Razorpay order created. Proceed with payment.',
+                    order_id,
+                    order_number,
+                    razorpay_order: razorpayOrder,
+                    total_amount: totalAmount,
+                    status_value: 'pending_payment'
+                  });
+                }
+              );
+            });
           });
-        });
-      }
-    );
+        }
+      );
+    });
   });
+  
+  // router.post('/place-order', authenticate, (req, res) => {
+  //   const customer_id = req.user.id;
+  
+  //   db.query(
+  //     `SELECT c.*, p.name, p.selling_price, p.vendor_id 
+  //      FROM cart c 
+  //      JOIN products p ON c.product_id = p.id 
+  //      WHERE c.customer_id = ?`, 
+  //     [customer_id],
+  //     (err, cartItems) => {
+  //       if (err) return res.status(500).json({ error: err.message });
+  //       if (cartItems.length === 0) return res.status(400).json({ error: 'Cart is empty' });
+  
+  //       // Step 1: Calculate total
+  //       const totalAmount = cartItems.reduce((sum, item) => sum + (item.selling_price * (item.quantity || 1)), 0);
+  
+  //       // Step 2: Create Razorpay order
+  //       const options = {
+  //         amount: totalAmount * 100, // paise
+  //         currency: "INR",
+  //         receipt: `order_${Date.now()}`
+  //       };
+  
+  //       razorpay.orders.create(options, (err2, razorpayOrder) => {
+  //         if (err2) return res.status(500).json({ error: 'Razorpay order creation failed', details: err2 });
+  
+  //         // Step 3: Insert into orders table (pending_payment)
+  //         const order_number = 'ORD' + Date.now();
+  //         const firstItem = cartItems[0];
+  
+  //         const orderData = {
+  //           order_number,
+  //           customer_id,
+  //           status: 'pending_payment',   // 👈 not placed yet
+  //           order_date: new Date(),
+  //           product_id: firstItem.product_id,
+  //           vendor_id: firstItem.vendor_id,
+  //           razorpay_order_id: razorpayOrder.id,
+  //           amount: totalAmount
+  //         };
+  
+  //         db.query('INSERT INTO orders SET ?', orderData, (err3, result) => {
+  //           if (err3) return res.status(500).json({ error: err3.message });
+  
+  //           const order_id = result.insertId;
+  
+  //           // Step 4: Insert order items
+  //           const items = cartItems.map(item => ([
+  //             order_id,
+  //             item.product_id,
+  //             item.vendor_id,
+  //             item.quantity || 1,
+  //             item.selling_price
+  //           ]));
+  
+  //           db.query(
+  //             `INSERT INTO order_items (order_id, product_id, vendor_id, quantity, price) VALUES ?`,
+  //             [items],
+  //             (err4) => {
+  //               if (err4) return res.status(500).json({ error: err4.message });
+  
+  //               // Step 5: Insert transaction
+  //               const txnSql = `
+  //                 INSERT INTO transactions (order_id, customer_id, razorpay_order_id, amount, status, transaction_type)
+  //                 VALUES (?, ?, ?, ?, 'pending','order')
+  //               `;
+  //               db.query(txnSql, [order_id, customer_id, razorpayOrder.id, totalAmount]);
+  
+  //               // Step 6: Clear cart
+  //               db.query('DELETE FROM cart WHERE customer_id = ?', [customer_id]);
+  
+  //               // Step 7: Send response
+  //               res.json({
+  //                 status: true,
+  //                 message: 'Razorpay order created. Proceed with payment.',
+  //                 order_id,
+  //                 order_number,
+  //                 razorpay_order: razorpayOrder,
+  //                 total_amount: totalAmount,
+  //                 status_value: 'pending_payment'
+  //               });
+  //             }
+  //           );
+  //         });
+  //       });
+  //     }
+  //   );
+  // });
 
 
   router.post("/verify-order-payment", authenticate, (req, res) => {

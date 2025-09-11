@@ -316,5 +316,36 @@ router.post('/check-gst-pan', (req, res) => {
     });
   });
   
+  // Update or Insert Delivery Partner Location
+router.post("/delivery-partner/update-location", authenticate, (req, res) => {
+  const partner_id = req.user.id;  // from JWT
+  const { latitude, longitude } = req.body;
+
+  if (!latitude || !longitude) {
+    return res.status(400).json({ error: "Latitude and Longitude are required" });
+  }
+
+  const sql = `
+    INSERT INTO delivery_partner_locations (partner_id, latitude, longitude)
+    VALUES (?, ?, ?)
+    ON DUPLICATE KEY UPDATE 
+      latitude = VALUES(latitude),
+      longitude = VALUES(longitude),
+      updated_at = CURRENT_TIMESTAMP
+  `;
+
+  db.query(sql, [partner_id, latitude, longitude], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    res.json({
+      success: true,
+      message: "Location updated successfully",
+      partner_id,
+      latitude,
+      longitude
+    });
+  });
+});
+
   
 module.exports = router;

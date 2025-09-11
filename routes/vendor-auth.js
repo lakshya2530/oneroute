@@ -328,12 +328,12 @@ router.post("/create-profile", (req, res) => {
 
 // [7] Create Shop
 router.post("/create-shop", (req, res) => {
-  const { user_id, shop_name, address, pincode, state, city,owner_name } = req.body;
+  const { user_id, shop_name, address, pincode, state, city,owner_name,latitude,longitude } = req.body;
 
-  const insertShop = "INSERT INTO vendor_shops (vendor_id, shop_name, address, is_approved,pincode,state,city,owner_name) VALUES (?, ?, ?, 0, ?, ?, ?, ?)";
+  const insertShop = "INSERT INTO vendor_shops (vendor_id, shop_name, address, is_approved,pincode,state,city,owner_name,latitude,longitude) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?)";
   const updateUser = "UPDATE users SET registration_step = 3 WHERE id = ?";
 
-  db.query(insertShop, [user_id, shop_name, address,pincode, state, city,owner_name], (shopErr) => {
+  db.query(insertShop, [user_id, shop_name, address,pincode, state, city,owner_name,latitude,longitude], (shopErr) => {
     if (shopErr) return res.status(500).json({ error: "Shop creation failed" });
 
     db.query(updateUser, [user_id], (updateErr) => {

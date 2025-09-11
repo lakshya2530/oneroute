@@ -405,11 +405,10 @@ router.get('/vendor-orders', authenticate, (req, res) => {
       res.json({ upcoming_orders: upcoming, past_orders: past });
     });
   });
-  
+
   router.get('/vendor-orders/:order_id', authenticate, (req, res) => {
     const vendor_id = req.user.id;
     const { order_id } = req.params;
-    const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
   
     const sql = `
       SELECT 
@@ -420,6 +419,11 @@ router.get('/vendor-orders', authenticate, (req, res) => {
         c.id AS customer_id, 
         c.full_name AS customer_name, 
         c.phone AS customer_mobile, 
+        o.customer_latitude AS customer_lat,
+        o.customer_longitude AS customer_long,
+        s.id AS shop_id,
+        s.latitude AS shop_lat,
+        s.longitude AS shop_long,
         oi.id AS item_id, 
         oi.quantity, 
         oi.price, 
@@ -430,6 +434,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
       JOIN order_items oi ON o.id = oi.order_id
       JOIN products p ON oi.product_id = p.id
       JOIN users c ON o.customer_id = c.id
+      JOIN shops s ON oi.vendor_id = s.vendor_id
       WHERE o.id = ? AND oi.vendor_id = ?
     `;
   
@@ -442,6 +447,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
         order_number: results[0].order_number,
         status: results[0].status,
         order_date: results[0].order_date,
+        delivery_option: null, // 👈 default
         customer: {
           id: results[0].customer_id,
           name: results[0].customer_name,
@@ -455,7 +461,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
           price: r.price,
           images: (() => {
             try {
-              return JSON.parse(r.images || '[]').map(img => `${baseUrl}/products/${img}`);
+              return JSON.parse(r.images || '[]');
             } catch (e) {
               return [];
             }
@@ -463,9 +469,181 @@ router.get('/vendor-orders', authenticate, (req, res) => {
         }))
       };
   
+      // ✅ distance calc
+      const shopLat = parseFloat(results[0].shop_lat);
+      const shopLng = parseFloat(results[0].shop_long);
+      const custLat = parseFloat(results[0].customer_lat);
+      const custLng = parseFloat(results[0].customer_long);
+  
+      const distance = haversine(shopLat, shopLng, custLat, custLng);
+  
+      if (distance <= 50) {
+        orderInfo.delivery_option = "assign_to_partner"; // vendor will click assign
+      } else {
+        orderInfo.delivery_option = "ship_api"; // auto-ship
+      }
+  
       res.json(orderInfo);
     });
   });
+  
+  router.post('/vendor/assign-delivery/:order_id', authenticate, (req, res) => {
+    const vendor_id = req.user.id;
+    const { order_id } = req.params;
+  
+    // Step 1: Get order & shop info
+    const sqlOrder = `
+      SELECT o.id AS order_id, o.customer_latitude, o.customer_longitude, 
+             s.id AS shop_id, s.latitude AS shop_lat, s.longitude AS shop_lng, 
+             o.customer_id
+      FROM orders o
+      JOIN shops s ON o.vendor_id = s.vendor_id
+      WHERE o.id = ? AND o.vendor_id = ?
+    `;
+    db.query(sqlOrder, [order_id, vendor_id], (err, orderRows) => {
+      if (err) return res.status(500).json({ error: err.message });
+      if (orderRows.length === 0) return res.status(404).json({ error: "Order not found" });
+  
+      const order = orderRows[0];
+  
+      // Step 2: Find partners within 30 km of shop
+      const sqlPartners = `SELECT * FROM delivery_partner_locations`;
+      db.query(sqlPartners, (err2, partners) => {
+        if (err2) return res.status(500).json({ error: err2.message });
+  
+        const nearbyPartners = partners.filter(p => {
+          return getDistanceFromLatLonInKm(
+            order.shop_lat, order.shop_lng, p.latitude, p.longitude
+          ) <= 30;
+        });
+  
+        if (nearbyPartners.length === 0) {
+          return res.status(200).json({ message: "No delivery partners in range, fallback to shipping API" });
+        }
+  
+        // Step 3: Insert into delivery_requests
+        const insertReq = `
+          INSERT INTO delivery_requests (order_id, shop_id, customer_id)
+          VALUES (?, ?, ?)
+        `;
+        db.query(insertReq, [order.order_id, order.shop_id, order.customer_id], (err3, reqResult) => {
+          if (err3) return res.status(500).json({ error: err3.message });
+  
+          const request_id = reqResult.insertId;
+  
+          // Step 4: Insert into delivery_request_partners
+          const reqPartners = nearbyPartners.map(p => [request_id, p.partner_id]);
+          db.query(
+            `INSERT INTO delivery_request_partners (request_id, partner_id) VALUES ?`,
+            [reqPartners],
+            (err4) => {
+              if (err4) return res.status(500).json({ error: err4.message });
+  
+              res.json({
+                success: true,
+                message: "Delivery request sent to nearby partners",
+                request_id,
+                partners_notified: nearbyPartners.length
+              });
+            }
+          );
+        });
+      });
+    });
+  });
+  
+  // helper to calculate distance
+  function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+    function deg2rad(deg) {
+      return deg * (Math.PI/180);
+    }
+    const R = 6371; // km
+    const dLat = deg2rad(lat2-lat1);
+    const dLon = deg2rad(lon2-lon1); 
+    const a = 
+      Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+      Math.sin(dLon/2) * Math.sin(dLon/2); 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    return R * c;
+  }
+  
+  // helper to calculate distance
+function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+  function deg2rad(deg) {
+    return deg * (Math.PI/180);
+  }
+  const R = 6371; // km
+  const dLat = deg2rad(lat2-lat1);
+  const dLon = deg2rad(lon2-lon1); 
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2); 
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+  return R * c;
+}
+  
+  // router.get('/vendor-orders/:order_id', authenticate, (req, res) => {
+  //   const vendor_id = req.user.id;
+  //   const { order_id } = req.params;
+  //   const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
+  
+  //   const sql = `
+  //     SELECT 
+  //       o.id AS order_id, 
+  //       o.order_number, 
+  //       o.status, 
+  //       o.order_date, 
+  //       c.id AS customer_id, 
+  //       c.full_name AS customer_name, 
+  //       c.phone AS customer_mobile, 
+  //       oi.id AS item_id, 
+  //       oi.quantity, 
+  //       oi.price, 
+  //       p.id AS product_id, 
+  //       p.name AS product_name, 
+  //       p.images
+  //     FROM orders o
+  //     JOIN order_items oi ON o.id = oi.order_id
+  //     JOIN products p ON oi.product_id = p.id
+  //     JOIN users c ON o.customer_id = c.id
+  //     WHERE o.id = ? AND oi.vendor_id = ?
+  //   `;
+  
+  //   db.query(sql, [order_id, vendor_id], (err, results) => {
+  //     if (err) return res.status(500).json({ error: err.message });
+  //     if (results.length === 0) return res.status(404).json({ error: "Order not found" });
+  
+  //     const orderInfo = {
+  //       order_id: results[0].order_id,
+  //       order_number: results[0].order_number,
+  //       status: results[0].status,
+  //       order_date: results[0].order_date,
+  //       customer: {
+  //         id: results[0].customer_id,
+  //         name: results[0].customer_name,
+  //         mobile: results[0].customer_mobile
+  //       },
+  //       items: results.map(r => ({
+  //         item_id: r.item_id,
+  //         product_id: r.product_id,
+  //         product_name: r.product_name,
+  //         quantity: r.quantity,
+  //         price: r.price,
+  //         images: (() => {
+  //           try {
+  //             return JSON.parse(r.images || '[]').map(img => `${baseUrl}/products/${img}`);
+  //           } catch (e) {
+  //             return [];
+  //           }
+  //         })()
+  //       }))
+  //     };
+  
+  //     res.json(orderInfo);
+  //   });
+  // });
 
 
   router.post('/vendor-orders/:order_id/status', authenticate, (req, res) => {
