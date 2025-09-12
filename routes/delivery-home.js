@@ -5,8 +5,8 @@ const authenticate = require('../middleware/auth');
 
 
 router.get('/delivery-orders', authenticate, (req, res) => {
-  const assigned_to = req.user.id;
-  const now = new Date();
+  const partner_id = req.user.id;
+
   const todayStart = new Date();
   todayStart.setHours(0, 0, 0, 0);
   const todayEnd = new Date();
@@ -14,19 +14,27 @@ router.get('/delivery-orders', authenticate, (req, res) => {
 
   const sql = `
     SELECT 
-      o.*, 
+      o.id AS order_id,
+      o.order_date,
+      o.delivery_date,
+      o.status,
       p.name AS product_name, 
       p.images, 
       p.category,
-      u.full_name AS vendor_name
+      v.full_name AS vendor_name,
+      ca.name AS customer_name,
+      ca.description AS customer_address,
+      ca.latitude,
+      ca.longitude
     FROM orders o
     JOIN products p ON o.product_id = p.id
-    JOIN users u ON o.assigned_to = u.id
+    JOIN users v ON o.vendor_id = v.id
+    LEFT JOIN customer_addresses ca ON o.customer_address_id = ca.id
     WHERE o.assigned_to = ?
     ORDER BY o.order_date DESC
   `;
 
-  db.query(sql, [assigned_to], (err, results) => {
+  db.query(sql, [partner_id], (err, results) => {
     if (err) return res.status(500).json({ error: err.message });
 
     const upcoming = [];
@@ -36,21 +44,26 @@ router.get('/delivery-orders', authenticate, (req, res) => {
     results.forEach(order => {
       const deliveryDate = new Date(order.delivery_date || order.order_date);
 
-      const images = (() => {
-        try {
-          return JSON.parse(order.images || '[]').map(
-            img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
-          );
-        } catch (e) {
-          return [];
-        }
-      })();
+      let images = [];
+      try {
+        images = JSON.parse(order.images || '[]').map(
+          img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
+        );
+      } catch (e) {}
 
       const formattedOrder = {
-        ...order,
-        images,
+        order_id: order.order_id,
+        status: order.status,
+        order_date: order.order_date,
+        delivery_date: order.delivery_date,
         product_name: order.product_name,
+        category: order.category,
         vendor_name: order.vendor_name,
+        customer_name: order.customer_name,
+        customer_address: order.customer_address,
+        latitude: order.latitude,
+        longitude: order.longitude,
+        images
       };
 
       if (deliveryDate >= todayStart && deliveryDate <= todayEnd) {
@@ -65,6 +78,7 @@ router.get('/delivery-orders', authenticate, (req, res) => {
     res.json({ today_orders: today, upcoming_orders: upcoming, past_orders: past });
   });
 });
+
 
 
 router.get('/order/:order_id', authenticate, (req, res) => {
