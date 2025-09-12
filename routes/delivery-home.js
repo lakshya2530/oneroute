@@ -234,7 +234,7 @@ router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
   });
 });
 
-router.post('/partner/respond-request', authenticate, (req, res) => {
+router.post('/delivery-partner/respond-request', authenticate, (req, res) => {
   const partner_id = req.user.id;
   const { request_id, action } = req.body; // action = "accept" or "reject"
 
