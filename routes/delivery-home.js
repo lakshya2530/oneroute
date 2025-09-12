@@ -254,7 +254,7 @@ router.post('/delivery-partner/respond-request', authenticate, (req, res) => {
   const partner_id = req.user.id;
   const { request_id, action } = req.body; // action = "accept" or "reject"
 
-  if (!['accept','reject'].includes(action)) {
+  if (!['accept', 'reject'].includes(action)) {
     return res.status(400).json({ error: "Invalid action" });
   }
 
@@ -266,6 +266,9 @@ router.post('/delivery-partner/respond-request', authenticate, (req, res) => {
       if (rows.length === 0) return res.status(400).json({ error: "Request already assigned or expired" });
 
       const order_id = rows[0].order_id;
+
+      // Generate 4-digit OTP
+      const otp = 1234; //Math.floor(1000 + Math.random() * 9000).toString();
 
       // Assign this partner + update delivery date
       const sqlUpdateReq = `
@@ -292,15 +295,23 @@ router.post('/delivery-partner/respond-request', authenticate, (req, res) => {
         `;
         db.query(sqlAccept, [request_id, partner_id]);
 
-        // ✅ Update order with assigned partner + delivery date
+        // ✅ Update order with assigned partner + delivery date + OTP
         const sqlUpdateOrder = `
           UPDATE orders 
-          SET assigned_to = ?, delivery_date = NOW()
+          SET assigned_to = ?, delivery_date = NOW(), delivery_otp = ? 
           WHERE id = ?
         `;
-        db.query(sqlUpdateOrder, [partner_id, order_id]);
+        db.query(sqlUpdateOrder, [partner_id, otp, order_id], (err3) => {
+          if (err3) return res.status(500).json({ error: err3.message });
 
-        res.json({ success: true, message: "Request accepted successfully and order assigned" });
+          // TODO: send OTP to customer (SMS, Email, Push)
+          res.json({
+            success: true,
+            message: "Request accepted successfully and order assigned",
+            order_id,
+            otp // ⚠️ return only for testing, in production send via SMS/Email
+          });
+        });
       });
     });
   } else {
@@ -317,6 +328,36 @@ router.post('/delivery-partner/respond-request', authenticate, (req, res) => {
   }
 });
 
+router.post('/delivery-partner/verify-otp', authenticate, (req, res) => {
+  const partner_id = req.user.id;
+  const { order_id, otp } = req.body;
 
+  const sql = `SELECT delivery_otp, assigned_to FROM orders WHERE id = ?`;
+  db.query(sql, [order_id], (err, rows) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (rows.length === 0) return res.status(404).json({ error: "Order not found" });
+
+    const order = rows[0];
+
+    if (order.assigned_to !== partner_id) {
+      return res.status(403).json({ error: "You are not assigned to this order" });
+    }
+
+    if (order.delivery_otp !== otp) {
+      return res.status(400).json({ error: "Invalid OTP" });
+    }
+
+    // ✅ OTP matched → mark delivered
+    const updateSql = `
+      UPDATE orders 
+      SET status = 'delivered', is_delivered = 1 
+      WHERE id = ?
+    `;
+    db.query(updateSql, [order_id], (err2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.json({ success: true, message: "Order marked as delivered" });
+    });
+  });
+});
 
 module.exports = router;
