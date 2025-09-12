@@ -434,7 +434,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
       JOIN order_items oi ON o.id = oi.order_id
       JOIN products p ON oi.product_id = p.id
       JOIN users c ON o.customer_id = c.id
-      JOIN shops s ON oi.vendor_id = s.vendor_id
+      JOIN vendor_shops s ON oi.vendor_id = s.vendor_id
       WHERE o.id = ? AND oi.vendor_id = ?
     `;
   
