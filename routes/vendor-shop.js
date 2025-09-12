@@ -447,6 +447,10 @@ router.get('/vendor-orders', authenticate, (req, res) => {
         order_number: results[0].order_number,
         status: results[0].status,
         order_date: results[0].order_date,
+        customer_lat: results[0].customer_lat,
+        customer_long: results[0].customer_long,
+        shop_lat: results[0].shop_lat,
+        shop_long: results[0].shop_long,
         delivery_option: null, // 👈 default
         customer: {
           id: results[0].customer_id,
@@ -573,20 +577,20 @@ router.get('/vendor-orders', authenticate, (req, res) => {
   });
   
   // helper to calculate distance
-  function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
-    function deg2rad(deg) {
-      return deg * (Math.PI/180);
-    }
-    const R = 6371; // km
-    const dLat = deg2rad(lat2-lat1);
-    const dLon = deg2rad(lon2-lon1); 
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2); 
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-    return R * c;
-  }
+  // function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
+  //   function deg2rad(deg) {
+  //     return deg * (Math.PI/180);
+  //   }
+  //   const R = 6371; // km
+  //   const dLat = deg2rad(lat2-lat1);
+  //   const dLon = deg2rad(lon2-lon1); 
+  //   const a = 
+  //     Math.sin(dLat/2) * Math.sin(dLat/2) +
+  //     Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+  //     Math.sin(dLon/2) * Math.sin(dLon/2); 
+  //   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+  //   return R * c;
+  // }
   
   // helper to calculate distance
 function getDistanceFromLatLonInKm(lat1, lon1, lat2, lon2) {
