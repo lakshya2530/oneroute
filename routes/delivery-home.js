@@ -242,12 +242,13 @@ router.post('/delivery-partner/respond-request', authenticate, (req, res) => {
     return res.status(400).json({ error: "Invalid action" });
   }
 
-  // If accept → check if already assigned
   if (action === 'accept') {
     const sqlCheck = `SELECT * FROM delivery_requests WHERE id = ? AND status = 'pending'`;
     db.query(sqlCheck, [request_id], (err, rows) => {
       if (err) return res.status(500).json({ error: err.message });
       if (rows.length === 0) return res.status(400).json({ error: "Request already assigned or expired" });
+
+      const order_id = rows[0].order_id; // 👈 assume delivery_requests has order_id
 
       // Assign this partner
       const sqlUpdateReq = `
@@ -274,7 +275,17 @@ router.post('/delivery-partner/respond-request', authenticate, (req, res) => {
         `;
         db.query(sqlAccept, [request_id, partner_id]);
 
-        res.json({ success: true, message: "Request accepted successfully" });
+        // 👇 Also assign the order to this delivery partner
+        const sqlUpdateOrder = `
+          UPDATE orders 
+          SET assigned_to = ?, status = 'assigned_to_partner' 
+          WHERE id = ?
+        `;
+        db.query(sqlUpdateOrder, [partner_id, order_id], (err3) => {
+          if (err3) return res.status(500).json({ error: err3.message });
+
+          res.json({ success: true, message: "Request accepted and order assigned to delivery partner" });
+        });
       });
     });
   } else {
@@ -290,5 +301,6 @@ router.post('/delivery-partner/respond-request', authenticate, (req, res) => {
     });
   }
 });
+
 
 module.exports = router;
