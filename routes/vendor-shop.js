@@ -521,7 +521,7 @@ router.get('/vendor-orders', authenticate, (req, res) => {
              s.id AS shop_id, s.latitude AS shop_lat, s.longitude AS shop_lng, 
              o.customer_id
       FROM orders o
-      JOIN shops s ON o.vendor_id = s.vendor_id
+      JOIN vendor_shops s ON o.vendor_id = s.vendor_id
       WHERE o.id = ? AND o.vendor_id = ?
     `;
     db.query(sqlOrder, [order_id, vendor_id], (err, orderRows) => {
