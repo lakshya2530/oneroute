@@ -31,7 +31,7 @@ router.get('/delivery-orders', authenticate, (req, res) => {
     FROM orders o
     JOIN products p ON o.product_id = p.id
     JOIN users v ON o.vendor_id = v.id
-    LEFT JOIN customer_addresses ca ON o.customer_address_id = ca.id
+    LEFT JOIN customer_addresses ca ON o.address_id = ca.id
     WHERE o.assigned_to = ?
     ORDER BY o.order_date DESC
   `;
