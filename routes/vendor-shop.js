@@ -1295,6 +1295,7 @@ router.get('/services-list', (req, res) => {
       sc.image AS subcategory_image
     FROM services s
     LEFT JOIN service_subcategories sc ON s.sub_category_id = sc.id
+    WHERE 1=1
   `;
 
   const params = [];
@@ -1302,6 +1303,7 @@ router.get('/services-list', (req, res) => {
     sql += ' AND s.vendor_id = ?';
     params.push(vendor_id);
   }
+
   sql += ' ORDER BY s.id DESC';
 
   db.query(sql, params, (err, results) => {
@@ -1311,17 +1313,23 @@ router.get('/services-list', (req, res) => {
       return res.json({ status: true, message: 'No services found', data: [] });
     }
 
-    // Get slots for scheduled services
     const serviceIds = results.map(r => r.service_id);
-    const slotQuery = `SELECT * FROM service_slots WHERE service_id IN (?)`;
+    if (serviceIds.length === 0) {
+      return res.json({ status: true, message: 'Services fetched successfully', data: results });
+    }
 
+    const slotQuery = `SELECT * FROM service_slots WHERE service_id IN (?)`;
     db.query(slotQuery, [serviceIds], (err2, slotResults) => {
       if (err2) return res.status(500).json({ error: 'Failed to fetch slots' });
 
       const slotsMap = {};
       slotResults.forEach(slot => {
         if (!slotsMap[slot.service_id]) slotsMap[slot.service_id] = [];
-        slotsMap[slot.service_id].push({id:slot.id, date: slot.slot_date, time: slot.slot_time });
+        slotsMap[slot.service_id].push({
+          id: slot.id,
+          date: slot.slot_date,
+          time: slot.slot_time
+        });
       });
 
       const finalResults = results.map(service => ({
