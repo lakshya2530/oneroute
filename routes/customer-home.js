@@ -864,18 +864,29 @@ router.get('/customer/shops', (req, res) => {
     const customer_id = req.user.id;
     const now = new Date();
     const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
-
+  
     const sql = `
       SELECT 
-        o.order_number,o.id as order_id,o.status as order_status,o.order_date,o.product_id,o.customer_id,o.vendor_id,o.assigned_to,ot.price,
-        p.name AS product_name, 
-        p.images, 
+        o.order_number,
+        o.id AS order_id,
+        o.status AS order_status,
+        o.order_date,
+        o.product_id,
+        o.customer_id,
+        o.vendor_id,
+        o.assigned_to,
+        ot.price,
+        p.name AS product_name,
+        p.images,
         p.category,
-        u.full_name AS vendor_name
+        u.full_name AS vendor_name,
+        dp.full_name AS delivery_partner_name,
+        dp.phone AS delivery_partner_phone
       FROM orders o
       JOIN order_items ot ON o.id = ot.order_id
       JOIN products p ON o.product_id = p.id
       JOIN users u ON o.vendor_id = u.id
+      LEFT JOIN users dp ON o.assigned_to = dp.id -- delivery partner
       WHERE o.customer_id = ?
       ORDER BY o.order_date DESC
     `;
@@ -887,13 +898,11 @@ router.get('/customer/shops', (req, res) => {
       const past = [];
   
       results.forEach(order => {
-       // order.delivery_date
-        const deliveryDate = new Date(order.order_date || order.delivery_date);
+        const deliveryDate = new Date(order.delivery_date || order.order_date);
         const images = (() => {
           try {
             return JSON.parse(order.images || '[]').map(
-                img => `${baseUrl}/products/${img}`
-             // img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
+              img => `${baseUrl}/products/${img}`
             );
           } catch (e) {
             return [];
@@ -903,8 +912,9 @@ router.get('/customer/shops', (req, res) => {
         const formattedOrder = {
           ...order,
           images,
-          product_name: order.product_name,
           vendor_name: order.vendor_name,
+          delivery_partner_name: order.delivery_partner_name,
+          delivery_partner_phone: order.delivery_partner_phone
         };
   
         if (deliveryDate > now) {
