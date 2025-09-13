@@ -6,78 +6,52 @@ const authenticate = require('../middleware/auth');
 
 
 
-router.get('/delivery-orders', authenticate, (req, res) => {
+router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
   const partner_id = req.user.id;
-
-  const todayStart = new Date();
-  todayStart.setHours(0, 0, 0, 0);
-  const todayEnd = new Date();
-  todayEnd.setHours(23, 59, 59, 999);
 
   const sql = `
     SELECT 
-      o.id AS order_id,
-      o.order_date,
-      o.delivery_date,
-      o.status,
-      p.name AS product_name, 
-      p.images, 
-      p.category,
-      v.full_name AS vendor_name,
-      ca.name AS customer_name,
-      ca.description AS customer_address,
-      ca.latitude,
-      ca.longitude
-    FROM orders o
-    JOIN products p ON o.product_id = p.id
-    JOIN users v ON o.vendor_id = v.id
-    LEFT JOIN customer_addresses ca ON o.address_id = ca.id
-    WHERE o.assigned_to = ?
-    ORDER BY o.order_date DESC
+      dr.id AS request_id, 
+      dr.order_id, 
+      dr.customer_id, 
+      dr.status,
+
+      -- Order
+      o.order_number, 
+      o.amount, 
+      o.customer_address, 
+      o.customer_city, 
+      o.customer_pincode,
+
+      -- Customer (from users)
+      u.full_name AS customer_name,
+      u.phone AS customer_phone,
+
+      -- Shop / Vendor
+      s.id AS shop_id,
+      s.shop_name,
+      s.address AS shop_address,
+      s.city AS shop_city,
+      s.state AS shop_state,
+      s.latitude AS shop_latitude,
+      s.longitude AS shop_longitude
+    FROM delivery_request_partners drp
+    JOIN delivery_requests dr 
+      ON drp.request_id = dr.id
+    JOIN orders o 
+      ON dr.order_id = o.id
+    JOIN users u 
+      ON dr.customer_id = u.id
+    JOIN vendor_shops s 
+      ON o.vendor_id = s.vendor_id
+    WHERE drp.partner_id = ? 
+      AND drp.status = 'pending' 
+      AND dr.status = 'pending'
   `;
 
-  db.query(sql, [partner_id], (err, results) => {
+  db.query(sql, [partner_id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
-
-    const upcoming = [];
-    const past = [];
-    const today = [];
-
-    results.forEach(order => {
-      const deliveryDate = new Date(order.delivery_date || order.order_date);
-
-      let images = [];
-      try {
-        images = JSON.parse(order.images || '[]').map(
-          img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
-        );
-      } catch (e) {}
-
-      const formattedOrder = {
-        order_id: order.order_id,
-        status: order.status,
-        order_date: order.order_date,
-        delivery_date: order.delivery_date,
-        product_name: order.product_name,
-        category: order.category,
-        vendor_name: order.vendor_name,
-        customer_name: order.customer_name,
-        customer_address: order.customer_address,
-        latitude: order.latitude,
-        longitude: order.longitude,
-        images
-      };
-
-      if (deliveryDate >= todayStart && deliveryDate <= todayEnd) {
-        today.push(formattedOrder);
-      } else if (deliveryDate > todayEnd) {
-        upcoming.push(formattedOrder);
-      } else {
-        past.push(formattedOrder);
-      }
-    });
-
-    res.json({ today_orders: today, upcoming_orders: upcoming, past_orders: past });
+    res.json(rows);
   });
 });
 
