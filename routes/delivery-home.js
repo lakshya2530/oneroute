@@ -24,8 +24,8 @@ router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
       o.customer_pincode,
 
       -- Customer (from users)
-      u.full_name AS customer_name,
-      u.phone AS customer_phone,
+      cu.full_name AS customer_name,
+      cu.phone AS customer_phone,
 
       -- Shop / Vendor
       s.id AS shop_id,
@@ -34,16 +34,22 @@ router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
       s.city AS shop_city,
       s.state AS shop_state,
       s.latitude AS shop_latitude,
-      s.longitude AS shop_longitude
+      s.longitude AS shop_longitude,
+
+      -- Vendor (from users table)
+      vu.full_name AS vendor_name,
+      vu.phone AS vendor_phone
     FROM delivery_request_partners drp
     JOIN delivery_requests dr 
       ON drp.request_id = dr.id
     JOIN orders o 
       ON dr.order_id = o.id
-    JOIN users u 
-      ON dr.customer_id = u.id
-    JOIN vendor_shops s 
-      ON o.vendor_id = s.vendor_id
+    JOIN users cu 
+      ON dr.customer_id = cu.id         -- Customer details
+    JOIN shops s 
+      ON o.vendor_id = s.vendor_id      -- Shop details
+    JOIN users vu 
+      ON o.vendor_id = vu.id            -- Vendor details
     WHERE drp.partner_id = ? 
       AND drp.status = 'pending' 
       AND dr.status = 'pending'
@@ -54,6 +60,7 @@ router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
     res.json(rows);
   });
 });
+
 
 
 
