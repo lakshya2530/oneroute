@@ -46,7 +46,7 @@ router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
       ON dr.order_id = o.id
     JOIN users cu 
       ON dr.customer_id = cu.id         -- Customer details
-    JOIN shops s 
+    JOIN vendor_shops s 
       ON o.vendor_id = s.vendor_id      -- Shop details
     JOIN users vu 
       ON o.vendor_id = vu.id            -- Vendor details
