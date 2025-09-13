@@ -231,24 +231,81 @@ router.get('/wallet', authenticate, (req, res) => {
   });
 });
 
-
 router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
   const partner_id = req.user.id;
 
   const sql = `
-    SELECT dr.id AS request_id, dr.order_id, dr.customer_id, dr.status,
-           o.order_number, o.amount, o.customer_address, o.customer_city, o.customer_pincode
+    SELECT 
+      dr.id AS request_id, 
+      dr.order_id, 
+      dr.customer_id, 
+      dr.status,
+
+      -- Order
+      o.order_number, 
+      o.amount, 
+      o.customer_address, 
+      o.customer_city, 
+      o.customer_pincode,
+
+      -- Customer
+      u.full_name AS customer_name,
+      u.phone AS customer_phone,
+
+      ca.name AS address_name,
+      ca.description AS address_description,
+      ca.latitude AS customer_latitude,
+      ca.longitude AS customer_longitude,
+
+      -- Shop / Vendor
+      s.id AS shop_id,
+      s.shop_name,
+      s.address AS shop_address,
+      s.latitude AS shop_latitude,
+      s.longitude AS shop_longitude,
+      s.city AS shop_city,
+      s.state AS shop_state
     FROM delivery_request_partners drp
-    JOIN delivery_requests dr ON drp.request_id = dr.id
-    JOIN orders o ON dr.order_id = o.id
-    WHERE drp.partner_id = ? AND drp.status = 'pending' AND dr.status = 'pending'
+    JOIN delivery_requests dr 
+      ON drp.request_id = dr.id
+    JOIN orders o 
+      ON dr.order_id = o.id
+    JOIN users u 
+      ON dr.customer_id = u.id
+    LEFT JOIN customer_addresses ca 
+      ON o.address_id = ca.id
+    LEFT JOIN shops s 
+      ON o.vendor_id = s.vendor_id
+    WHERE drp.partner_id = ? 
+      AND drp.status = 'pending' 
+      AND dr.status = 'pending'
   `;
 
   db.query(sql, [partner_id], (err, rows) => {
     if (err) return res.status(500).json({ error: err.message });
+
     res.json(rows);
   });
 });
+
+
+// router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
+//   const partner_id = req.user.id;
+
+//   const sql = `
+//     SELECT dr.id AS request_id, dr.order_id, dr.customer_id, dr.status,
+//            o.order_number, o.amount, o.customer_address, o.customer_city, o.customer_pincode
+//     FROM delivery_request_partners drp
+//     JOIN delivery_requests dr ON drp.request_id = dr.id
+//     JOIN orders o ON dr.order_id = o.id
+//     WHERE drp.partner_id = ? AND drp.status = 'pending' AND dr.status = 'pending'
+//   `;
+
+//   db.query(sql, [partner_id], (err, rows) => {
+//     if (err) return res.status(500).json({ error: err.message });
+//     res.json(rows);
+//   });
+// });
 
 router.post('/delivery-partner/respond-request', authenticate, (req, res) => {
   const partner_id = req.user.id;
