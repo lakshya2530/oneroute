@@ -24,8 +24,8 @@ router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
       o.customer_pincode,
 
       -- Customer (from users)
-      cu.full_name AS customer_name,
-      cu.phone AS customer_phone,
+      u.full_name AS customer_name,
+      u.phone AS customer_phone,
 
       -- Shop / Vendor
       s.id AS shop_id,
@@ -34,22 +34,16 @@ router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
       s.city AS shop_city,
       s.state AS shop_state,
       s.latitude AS shop_latitude,
-      s.longitude AS shop_longitude,
-
-      -- Vendor (from users table)
-      vu.full_name AS vendor_name,
-      vu.phone AS vendor_phone
+      s.longitude AS shop_longitude
     FROM delivery_request_partners drp
     JOIN delivery_requests dr 
       ON drp.request_id = dr.id
     JOIN orders o 
       ON dr.order_id = o.id
-    JOIN users cu 
-      ON dr.customer_id = cu.id         -- Customer details
+    JOIN users u 
+      ON dr.customer_id = u.id
     JOIN vendor_shops s 
-      ON o.vendor_id = s.vendor_id      -- Shop details
-    JOIN users vu 
-      ON o.vendor_id = vu.id            -- Vendor details
+      ON o.vendor_id = s.vendor_id
     WHERE drp.partner_id = ? 
       AND drp.status = 'pending' 
       AND dr.status = 'pending'
@@ -61,13 +55,74 @@ router.get('/delivery-partner/pending-requests', authenticate, (req, res) => {
   });
 });
 
+router.get('/delivery-orders', authenticate, (req, res) => {
+  const assigned_to = req.user.id;
 
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const todayEnd = new Date();
+  todayEnd.setHours(23, 59, 59, 999);
+
+  const sql = `
+    SELECT 
+      o.*, 
+      p.name AS product_name, 
+      p.images, 
+      p.category,
+      u.full_name AS vendor_name
+    FROM orders o
+    JOIN products p ON o.product_id = p.id
+    LEFT JOIN users u ON o.vendor_id = u.id
+    WHERE o.assigned_to = ?
+    ORDER BY o.order_date DESC
+  `;
+
+  db.query(sql, [assigned_to], (err, results) => {
+    if (err) return res.status(500).json({ error: err.message });
+
+    const upcoming = [];
+    const past = [];
+    const today = [];
+
+    results.forEach(order => {
+      const orderDate = new Date(order.order_date);
+
+      const images = (() => {
+        try {
+          return JSON.parse(order.images || '[]').map(
+            img => `${process.env.BASE_URL || 'http://localhost:3000'}/uploads/${img}`
+          );
+        } catch (e) {
+          return [];
+        }
+      })();
+
+      const formattedOrder = {
+        ...order,
+        images,
+        product_name: order.product_name,
+        vendor_name: order.vendor_name,
+      };
+
+      if (orderDate >= todayStart && orderDate <= todayEnd) {
+        today.push(formattedOrder);
+      } else if (orderDate > todayEnd) {
+        upcoming.push(formattedOrder);
+      } else {
+        past.push(formattedOrder);
+      }
+    });
+
+    res.json({ today_orders: today, upcoming_orders: upcoming, past_orders: past });
+  });
+});
 
 
 router.get('/order/:order_id', authenticate, (req, res) => {
   const order_id = req.params.order_id;
   const baseUrl = `${req.protocol}://${req.get('host')}/uploads`;
-
+ 
   // Step 1: Get order details
   const orderSql = `
     SELECT 
