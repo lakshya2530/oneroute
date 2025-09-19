@@ -1,0 +1,22 @@
+[0;1;32m●[0m nginx.service - The nginx HTTP and reverse proxy server
+     Loaded: loaded (]8;;file://srv1017908.hstgr.cloud/usr/lib/systemd/system/nginx.service\/usr/lib/systemd/system/nginx.service]8;;\; [0;1;32menabled[0m; preset: [0;1;38:5:185mdisabled[0m)
+    Drop-In: /etc/systemd/system/nginx.service.d
+             └─]8;;file://srv1017908.hstgr.cloud/etc/systemd/system/nginx.service.d/php-fpm.conf\php-fpm.conf]8;;\
+     Active: [0;1;32mactive (running)[0m since Fri 2025-09-19 12:21:09 UTC; 3s ago
+ Invocation: b25e4818b53b4d5eb975b19f5cd4d4f1
+    Process: 14262 ExecStartPre=/usr/bin/rm -f /run/nginx.pid (code=exited, status=0/SUCCESS)
+    Process: 14263 ExecStartPre=/usr/sbin/nginx -t (code=exited, status=0/SUCCESS)
+    Process: 14266 ExecStart=/usr/sbin/nginx (code=exited, status=0/SUCCESS)
+   Main PID: 14267 (nginx)
+      Tasks: 3[0;38;5;245m (limit: 50425)[0m
+     Memory: 3M (peak: 3M)
+        CPU: 32ms
+     CGroup: /system.slice/nginx.service
+             ├─[0;38;5;245m14267 "nginx: master process /usr/sbin/nginx"[0m
+             ├─[0;38;5;245m14268 "nginx: worker process"[0m
+             └─[0;38;5;245m14269 "nginx: worker process"[0m
+
+Sep 19 12:21:09 srv1017908.hstgr.cloud systemd[1]: Starting nginx.service - The nginx HTTP and reverse proxy server...
+Sep 19 12:21:09 srv1017908.hstgr.cloud nginx[14263]: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+Sep 19 12:21:09 srv1017908.hstgr.cloud nginx[14263]: nginx: configuration file /etc/nginx/nginx.conf test is successful
+Sep 19 12:21:09 srv1017908.hstgr.cloud systemd[1]: Started nginx.service - The nginx HTTP and reverse proxy server.
