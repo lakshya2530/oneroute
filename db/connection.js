@@ -1,53 +1,20 @@
+const mysql = require("mysql2");
 
-const mysql = require('mysql2');
+const pool = mysql.createPool({
+  host: "localhost",
+  user: "root", // your MySQL username
+  password: "", // your MySQL password
+  database: "oneroute", // database name
+  connectionLimit: 10,
+});
 
-// const connection = mysql.createConnection({
-//     host: 'localhost',
-//     user: 'root',
-//     password: '', // update your password
-//     database: 'ecommerce_db'
-// });
-const connection = mysql.createPool({
-    host: 'localhost',
-    user: 'oneroute',
-    password: 'Oneroute@123',
-    database: 'oneroute',
-    connectionLimit: 10
-  });
+pool.getConnection((err, connection) => {
+  if (err) {
+    console.error("❌ Database connection failed:", err.message);
+  } else {
+    console.log("✅ Connected to MySQL Database: oneroute");
+    connection.release();
+  }
+});
 
-// connection.connect((err) => {
-//     if (err) throw err;
-//     console.log('Connected to MySQL');
-// });
-
-module.exports = connection;
-
-
-// const { Pool } = require("pg");
-// require("dotenv").config();
-
-// const pool = new Pool({
-//   host: process.env.DB_HOST,
-//   port: process.env.DB_PORT,
-//   user: process.env.DB_USER,
-//   password: process.env.DB_PASSWORD,
-//   database: process.env.DB_NAME,
-// });
-
-// module.exports = pool;
-
-// const { Pool } = require("pg");
-// require("dotenv").config();
-
-// const pool = new Pool({
-//   host: "localhost",
-//   user: "postgres",
-//   port: "5433",
-//   password: String("root123"),
-//   database: "castlinker",
-// });
-// pool
-//   .connect()
-//   .then(() => console.log("✅ PostgreSQL database connected successfully!"))
-//   .catch((err) => console.error("❌ Failed to connect to the database:", err));
-// module.exports = pool;
+module.exports = pool.promise(); // use promise wrapper

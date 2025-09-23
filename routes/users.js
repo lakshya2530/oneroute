@@ -1,53 +1,290 @@
 const express = require("express");
 const router = express.Router();
-const bcrypt = require("bcryptjs");
+const pool = require("../db/connection.js");
 const jwt = require("jsonwebtoken");
-const db = require("../models"); // ✅ Import db
-const { User } = require('../models');
+const upload = require("../middleware/upload.js");
+const authenticateToken = require("../middleware/auth.js");
 
-router.post("/register", async (req, res) => {
+const STATIC_OTP = "1234";
+
+// --- Send OTP ---
+router.post("/send-otp", async (req, res) => {
+  const { phone } = req.body;
+  if (!phone) return res.status(400).json({ msg: "Phone number required" });
+
   try {
-    const { email, password } = req.body;
-    const existingUser = await User.findOne({ where: { email } }); // ✅ This line works now
-
-    if (existingUser)
-      return res.status(409).json({ error: "User already exists" });
-
-    const hashed = await bcrypt.hash(password, 10);
-    const newUser = await User.create({ email, password: hashed });
-
-    const token = jwt.sign({ id: newUser.id }, "your_secret_key", {
-      expiresIn: "7d",
-    });
-
-    res
-      .status(201)
-      .json({ user: { id: newUser.id, email: newUser.email }, token });
+    const conn = await pool.getConnection();
+    try {
+      await conn.query("DELETE FROM otps WHERE phone = ?", [phone]);
+      const expireAt = new Date(Date.now() + 5 * 60000); // 5 min expiry
+      await conn.query(
+        "INSERT INTO otps (phone, otp, expireAt) VALUES (?, ?, ?)",
+        [phone, STATIC_OTP, expireAt]
+      );
+      res.json({ msg: 'OTP "1234" sent for testing.' });
+    } finally {
+      conn.release();
+    }
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ msg: "Failed to send OTP" });
   }
 });
 
-router.get('/', async (req, res) => {
-  
+// --- Verify OTP & determine next step ---
+router.post("/verify-otp", async (req, res) => {
+  const { phone, otp } = req.body;
+  if (!phone || !otp)
+    return res.status(400).json({ msg: "Phone and OTP required" });
+
+  if (otp !== STATIC_OTP) return res.status(400).json({ msg: "Invalid OTP" });
+
   try {
-    const users = await User.findAll();
-    res.json(users);
+    const conn = await pool.getConnection();
+    try {
+      const [otpRows] = await conn.query(
+        "SELECT * FROM otps WHERE phone = ? AND otp = ? AND expireAt > NOW()",
+        [phone, otp]
+      );
+      if (otpRows.length === 0)
+        return res.status(400).json({ msg: "OTP expired or not found" });
+
+      // Remove OTP after use
+      await conn.query("DELETE FROM otps WHERE phone = ?", [phone]);
+
+      // Check if user exists
+      const [userRows] = await conn.query(
+        "SELECT * FROM users WHERE phone = ?",
+        [phone]
+      );
+
+      if (userRows.length === 0) {
+        // First-time user
+        await conn.query(
+          "INSERT INTO users (phone, verified, profile_completed) VALUES (?, ?, ?)",
+          [phone, true, false]
+        );
+        return res.json({ msg: "OTP verified. Proceed to profile setup." });
+      } else {
+        // Existing user → update verification if needed
+        if (!userRows[0].verified) {
+          await conn.query("UPDATE users SET verified = ? WHERE phone = ?", [
+            true,
+            phone,
+          ]);
+        }
+
+        // Profile completed?
+        if (userRows[0].profile_completed) {
+          // Already complete → issue final JWT
+          const token = jwt.sign({ phone }, process.env.JWT_SECRET, {
+            expiresIn: "1d",
+          });
+          return res.json({ token, msg: "Login successful. Welcome back!" });
+        } else {
+          // Verified but profile incomplete → proceed to setup
+          return res.json({ msg: "OTP verified. Proceed to profile setup." });
+        }
+      }
+    } finally {
+      conn.release();
+    }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+    res.status(500).json({ msg: "OTP verification failed" });
   }
 });
 
-router.get('/test-db', async (req, res) => {
+// --- Create Profile ---
+router.post(
+  "/setup-profile",
+  upload.fields([
+    { name: "profile_pic", maxCount: 1 },
+    { name: "gov_id_image", maxCount: 1 },
+    { name: "vehicle_image", maxCount: 1 }, // only if offer_ride = true
+  ]),
+  async (req, res) => {
+    const { phone } = req.body;
+    if (!phone) return res.status(400).json({ msg: "Phone required" });
+
     try {
-        const result = await pool.query('SELECT NOW()');
-        res.send(`Database connected successfully at ${result.rows[0].now}`);
+      const conn = await pool.getConnection();
+      try {
+        // Check user exists & verified
+        const [[user]] = await conn.query(
+          "SELECT * FROM users WHERE phone=? AND verified=?",
+          [phone, true]
+        );
+        if (!user) return res.status(400).json({ msg: "User not verified" });
+
+        const {
+          fullname,
+          dob,
+          gender,
+          occupation,
+          address,
+          city,
+          state,
+          gov_id_number,
+          offer_ride, // "true" or "false"
+          vehicle_make,
+          vehicle_model,
+          vehicle_year,
+          license_plate,
+        } = req.body;
+
+        // --- Update User Table (personal details only) ---
+        await conn.query(
+          `UPDATE users SET fullname=?, dob=?, gender=?, occupation=?, address=?, city=?, state=?, gov_id_number=?, 
+           profile_pic=?, gov_id_image=?, profile_completed=?, offer_ride=? WHERE phone=?`,
+          [
+            fullname,
+            dob,
+            gender,
+            occupation,
+            address,
+            city,
+            state,
+            gov_id_number,
+            req.files["profile_pic"]?.[0]?.path || null,
+            req.files["gov_id_image"]?.[0]?.path || null,
+            true,
+            offer_ride === "true" ? true : false,
+            phone,
+          ]
+        );
+
+        // --- Step 2: If offer_ride = true, insert first vehicle ---
+        if (offer_ride === "true") {
+          await conn.query(
+            "INSERT INTO vehicles (user_id, vehicle_make, vehicle_model, vehicle_year, license_plate, vehicle_image) VALUES (?, ?, ?, ?, ?, ?)",
+            [
+              user.id,
+              vehicle_make || null,
+              vehicle_model || null,
+              vehicle_year || null,
+              license_plate || null,
+              req.files["vehicle_image"]?.[0]?.path || null,
+            ]
+          );
+        }
+
+        // --- Step 3: Issue JWT ---
+        const finalToken = jwt.sign({ phone }, process.env.JWT_SECRET, {
+          expiresIn: "1d",
+        });
+
+        res.json({
+          finalToken,
+          msg: "Profile setup complete! You are now logged in.",
+        });
+      } finally {
+        conn.release();
+      }
     } catch (err) {
-        console.error('DB Connection Error:', err);
-        res.status(500).send('Database connection failed: ' + err.message);
+      console.error(err);
+      res.status(500).json({ msg: "Profile setup failed" });
     }
+  }
+);
+
+// --- Get Profile ---
+router.get("/profile", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  try {
+    const conn = await pool.getConnection();
+    try {
+      const [rows] = await conn.query("SELECT * FROM users WHERE phone = ?", [
+        phone,
+      ]);
+      if (rows.length === 0)
+        return res.status(404).json({ msg: "User not found" });
+
+      const user = rows[0];
+      const baseUrl =
+        process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+
+      // Attach full URLs to file fields
+      user.profile_pic = user.profile_pic
+        ? `${baseUrl}/${user.profile_pic.replace(/\\/g, "/")}`
+        : null;
+      user.gov_id_image = user.gov_id_image
+        ? `${baseUrl}/${user.gov_id_image.replace(/\\/g, "/")}`
+        : null;
+
+      // user.vehicle_image = user.vehicle_image
+      //   ? `${baseUrl}/${user.vehicle_image.replace(/\\/g, "/")}`
+      //   : null;
+
+      res.json({ user });
+    } finally {
+      conn.release();
+    }
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ msg: "Failed to fetch profile" });
+  }
 });
 
+// --- Update Profile ---
+router.put(
+  "/update/profile",
+  upload.fields([
+    { name: "profile_pic", maxCount: 1 },
+    { name: "gov_id_image", maxCount: 1 },
+  ]),
+  authenticateToken,
+  async (req, res) => {
+    const { phone } = req.user;
+    try {
+      const {
+        fullname,
+        dob,
+        gender,
+        occupation,
+        address,
+        city,
+        state,
+        gov_id_number,
+      } = req.body;
+
+      const conn = await pool.getConnection();
+      try {
+        await conn.query(
+          `UPDATE users SET fullname=?, dob=?, gender=?, occupation=?, address=?, city=?, state=?, gov_id_number=?, 
+           profile_pic=?, gov_id_image=? WHERE phone=?`,
+          [
+            fullname,
+            dob,
+            gender,
+            occupation,
+            address,
+            city,
+            state,
+            gov_id_number,
+            req.files["profile_pic"]?.[0]?.path || null,
+            req.files["gov_id_image"]?.[0]?.path || null,
+            phone,
+          ]
+        );
+
+        if (result.affectedRows === 0) {
+          return res.status(404).json({ msg: "User not found" });
+        }
+
+        const [[updatedUser]] = await conn.query(
+          "SELECT * FROM users WHERE phone=?",
+          [phone]
+        );
+        res.json({ user: updatedUser, msg: "Profile updated successfully" });
+      } finally {
+        conn.release();
+      }
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ msg: "Profile update failed" });
+    }
+  }
+);
 
 module.exports = router;
