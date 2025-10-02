@@ -42,7 +42,7 @@ router.put(
   async (req, res) => {
     const { phone } = req.user;
 
-    const { account_holder_name, bank_name, account_number, ifsc_code } =
+    const { account_holder_name, bank_name, account_number, ifsc_code, branch_name } =
       req.body;
 
     const conn = await pool.getConnection();
@@ -61,8 +61,8 @@ router.put(
       if (existing) {
         // Update existing account
         const [result] = await conn.query(
-          `UPDATE accounts SET account_holder_name=?, bank_name=?, account_number=?, ifsc_code=? WHERE user_id=?`,
-          [account_holder_name, bank_name, account_number, ifsc_code, user.id]
+          `UPDATE accounts SET account_holder_name=?, bank_name=?, account_number=?, ifsc_code=?, branch_name=? WHERE user_id=?`,
+          [account_holder_name, bank_name, account_number, ifsc_code, branch_name, user.id]
         );
 
         if (result.affectedRows === 0) {
@@ -73,8 +73,15 @@ router.put(
       } else {
         // Create new account
         await conn.query(
-          `INSERT INTO accounts (user_id, account_holder_name, bank_name, account_number, ifsc_code) VALUES (?, ?, ?, ?, ?)`,
-          [user.id, account_holder_name, bank_name, account_number, ifsc_code]
+          `INSERT INTO accounts (user_id, account_holder_name, bank_name, account_number, ifsc_code, branch_name) VALUES (?, ?, ?, ?, ?)`,
+          [
+            user.id,
+            account_holder_name,
+            bank_name,
+            account_number,
+            ifsc_code,
+            branch_name,
+          ]
         );
 
         return res.json({ msg: "Account created successfully" });
