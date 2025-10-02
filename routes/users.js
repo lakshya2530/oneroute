@@ -47,12 +47,12 @@ router.post("/verify-otp", async (req, res) => {
   try {
     const conn = await pool.getConnection();
     try {
-      const [otpRows] = await conn.query(
-        "SELECT * FROM otps WHERE phone = ? AND otp = ? AND expireAt > NOW()",
-        [phone, otp]
-      );
-      if (otpRows.length === 0)
-        return res.status(400).json({ msg: "OTP expired or not found" });
+      // const [otpRows] = await conn.query(
+      //   "SELECT * FROM otps WHERE phone = ? AND otp = ? AND expireAt > NOW()",
+      //   [phone, otp]
+      // );
+      // if (otpRows.length === 0)
+      //   return res.status(400).json({ msg: "OTP expired or not found" });
 
       // Remove OTP after use
       await conn.query("DELETE FROM otps WHERE phone = ?", [phone]);
@@ -115,103 +115,6 @@ router.post("/verify-otp", async (req, res) => {
   }
 });
 
-// --- Create Profile ---
-router.post(
-  "/setup-profile",
-  upload.fields([
-    { name: "profile_pic", maxCount: 1 },
-    { name: "gov_id_image", maxCount: 1 },
-    { name: "vehicle_image", maxCount: 1 }, // only if offer_ride = true
-  ]),
-  async (req, res) => {
-    const { phone } = req.body;
-    if (!phone) return res.status(400).json({ msg: "Phone required" });
-
-    try {
-      const conn = await pool.getConnection();
-      try {
-        // Check user exists & verified
-        const userRows = await conn.query(
-          "SELECT * FROM users WHERE phone=? AND verified=?",
-          [phone, true]
-        );
-        const user = userRows[0][0];
-        if (!user) return res.status(400).json({ msg: "User not verified" });
-
-        const {
-          fullname,
-          dob,
-          gender,
-          occupation,
-          address,
-          city,
-          state,
-          gov_id_number,
-          offer_ride, // "true" or "false"
-          vehicle_make,
-          vehicle_model,
-          vehicle_year,
-          license_plate,
-        } = req.body;
-
-        // --- Update User Table (personal details only) ---
-        const [updateResult] = await conn.query(
-          `UPDATE users SET fullname=?, dob=?, gender=?, occupation=?, address=?, city=?, state=?, gov_id_number=?, 
-           profile_pic=?, gov_id_image=?, profile_completed=?, offer_ride=? WHERE phone=?`,
-          [
-            fullname,
-            dob,
-            gender,
-            occupation,
-            address,
-            city,
-            state,
-            gov_id_number,
-            req.files["profile_pic"]?.[0]?.path || null,
-            req.files["gov_id_image"]?.[0]?.path || null,
-            true,
-            offer_ride === "true" ? true : false,
-            phone,
-          ]
-        );
-
-        if (updateResult.affectedRows === 0) {
-          return res.status(404).json({ msg: "User not found" });
-        }
-
-        // --- Step 2: If offer_ride = true, insert first vehicle ---
-        if (offer_ride === "true") {
-          await conn.query(
-            "INSERT INTO vehicles (user_id, vehicle_make, vehicle_model, vehicle_year, license_plate, vehicle_image) VALUES (?, ?, ?, ?, ?, ?)",
-            [
-              user.id,
-              vehicle_make || null,
-              vehicle_model || null,
-              vehicle_year || null,
-              license_plate || null,
-              req.files["vehicle_image"]?.[0]?.path || null,
-            ]
-          );
-        }
-
-        // --- Step 3: Issue JWT ---
-        const token = jwt.sign({ phone }, process.env.JWT_SECRET, {
-          expiresIn: "1d",
-        });
-
-        res.json({
-          token,
-          msg: "Profile setup complete! You are now logged in.",
-        });
-      } finally {
-        conn.release();
-      }
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ msg: "Profile setup failed" });
-    }
-  }
-);
 
 // --- Get Profile ---
 router.get("/profile", authenticateToken, async (req, res) => {
