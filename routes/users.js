@@ -47,10 +47,10 @@ router.post("/verify-otp", async (req, res) => {
   try {
     const conn = await pool.getConnection();
     try {
-      // const [otpRows] = await conn.query(
-      //   "SELECT * FROM otps WHERE phone = ? AND otp = ? AND expireAt > NOW()",
-      //   [phone, otp]
-      // );
+      const [otpRows] = await conn.query(
+        "SELECT * FROM otps WHERE phone = ? AND otp = ? AND expireAt > NOW()",
+        [phone, otp]
+      );
       // if (otpRows.length === 0)
       //   return res.status(400).json({ msg: "OTP expired or not found" });
 
