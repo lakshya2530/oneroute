@@ -5,6 +5,8 @@ const pool = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
 
+const DEFAULT_OTP = "1234";
+
 // --- Create Ride ---
 router.post("/", authenticateToken, upload.none(), async (req, res) => {
   const { phone } = req.user;
@@ -78,19 +80,21 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
 router.get("/get-rides", authenticateToken, async (req, res) => {
   const { lat, lng, search } = req.query;
   const fixedRadiusKm = 5;
+  const { phone } = req.user;
 
   const conn = await pool.getConnection();
   try {
-    let sql = `SELECT rides.* FROM rides WHERE 1=1`;
-    let params = [];
+    let sql = `
+      SELECT rides.* FROM rides
+      JOIN users u ON rides.user_id = u.id
+      WHERE u.phone != ?`;
+    let params = [phone];
 
-    // If search filter is provided
     if (search) {
       sql += ` AND rides.drop_location LIKE ?`;
       params.push(`%${search}%`);
     }
 
-    // If lat/lng provided → calculate distance
     if (lat && lng) {
       sql = `
         SELECT rides.*,
@@ -100,7 +104,8 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
             SIN(RADIANS(?)) * SIN(RADIANS(CAST(rides.pickup_lat AS DECIMAL(10,7))))
           )) AS distance
         FROM rides
-        WHERE 1=1
+        JOIN users u ON rides.user_id = u.id
+        WHERE u.phone != ?
       `;
 
       if (search) {
@@ -109,8 +114,9 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
       }
 
       sql += ` HAVING distance <= ? ORDER BY distance ASC`;
-      params.unshift(lat, lng, lat); // Add lat/lng for Haversine calculation
+      params.unshift(lat, lng, lat); // for distance calculation
       params.push(fixedRadiusKm);
+      params.push(phone);
     }
 
     const [rides] = await conn.query(sql, params);
@@ -423,39 +429,44 @@ router.post(
     const ownerPhone = req.user.phone;
     const { requestId } = req.params;
     const { action } = req.body;
-
     const conn = await pool.getConnection();
-    try {
-      // Get owner ID based on phone number
-      const [[owner]] = await conn.query(
-        "SELECT id FROM users WHERE phone = ?",
-        [ownerPhone]
-      );
-      if (!owner) return res.status(404).json({ msg: "Owner not found" });
 
+    try {
+      const [[owner]] = await conn.query("SELECT id FROM users WHERE phone=?", [
+        ownerPhone,
+      ]);
+      if (!owner) return res.status(404).json({ msg: "Owner not found" });
       const owner_id = owner.id;
 
-      // Get the ride request and ride details
+      console.log(owner);
+
       const [[request]] = await conn.query(
-        `SELECT rr.*, r.user_id AS owner_id, r.seats_available, r.ride_status, r.id AS ride_id
-         FROM ride_requests rr
-         JOIN rides r ON rr.ride_id = r.id
-         WHERE rr.id = ?`,
+        `
+  SELECT rr.*, 
+         r.user_id AS owner_id, 
+         r.seats_available, 
+         r.ride_status, 
+         r.id AS ride_id, 
+         rr.passenger_id AS passenger_id
+  FROM ride_requests rr
+  JOIN rides r ON rr.ride_id = r.id
+  WHERE rr.id=?`,
         [requestId]
       );
 
       if (!request) return res.status(404).json({ msg: "Request not found" });
-
-      // Check if the authenticated owner is the ride owner
       if (request.owner_id !== owner_id)
         return res.status(403).json({ msg: "Not authorized" });
 
       if (action === "accept") {
-        if (request.no_of_seats > request.seats_available) {
+        if (request.no_of_seats > request.seats_available)
           return res.status(400).json({ msg: "Not enough seats available" });
-        }
 
-        // Update ride request status
+        const pickupOTP = DEFAULT_OTP;
+        const dropOTP = DEFAULT_OTP;
+
+        await conn.beginTransaction();
+
         await conn.query(
           "UPDATE ride_requests SET status='accepted' WHERE id=?",
           [requestId]
@@ -468,20 +479,40 @@ router.post(
           [remainingSeats, rideStatus, request.ride_id]
         );
 
-        res.json({ msg: "Request accepted" });
+        await conn.query(
+          `
+        INSERT INTO ride_otps (ride_id, user_id, pickup_otp, drop_otp, pickup_verified, drop_verified, created_at)
+        VALUES (?, ?, ?, ?, false, false, NOW())
+      `,
+          [request.ride_id, request.passenger_id, pickupOTP, dropOTP]
+        );
+
+        await conn.commit();
+
+        console.log(
+          `✅ Ride ${request.ride_id}: Pickup OTP=${pickupOTP}, Drop OTP=${dropOTP}`
+        );
+        res.json({ msg: "Ride accepted", pickupOTP, dropOTP });
       } else if (action === "reject") {
-        // Update ride request status
+        await conn.query(
+          `
+        DELETE ro FROM ride_otps ro 
+        JOIN ride_requests rr ON rr.ride_id = ro.ride_id 
+        WHERE rr.id = ?`,
+          [requestId]
+        );
+
         await conn.query(
           "UPDATE ride_requests SET status='rejected' WHERE id=?",
           [requestId]
         );
-
-        res.json({ msg: "Request rejected" });
+        res.json({ msg: "Ride rejected and OTPs removed" });
       } else {
         res.status(400).json({ msg: "Invalid action" });
       }
     } catch (err) {
       console.error(err);
+      await conn.rollback();
       res.status(500).json({ msg: "Failed to respond", error: err.message });
     } finally {
       conn.release();
@@ -489,42 +520,134 @@ router.post(
   }
 );
 
-// Mark Ride As Completion
-router.post("/rides/:rideId/complete", authenticateToken, async (req, res) => {
-  const ownerPhone = req.user.phone;
+//  Verify Pickup OTP (Start Ride)
+router.post("/:rideId/verify-pickup", authenticateToken, async (req, res) => {
+  const passengerPhone = req.user.phone;
   const { rideId } = req.params;
-
+  const { otp } = req.body;
   const conn = await pool.getConnection();
+
   try {
-    // Get owner ID based on phone number
-    const [[owner]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
-      ownerPhone,
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone=?", [
+      passengerPhone,
     ]);
-    if (!owner) return res.status(404).json({ msg: "Owner not found" });
+    if (!user) return res.status(404).json({ msg: "User not found" });
 
-    const owner_id = owner.id;
+    console.log(user);
 
-    // Check if the ride belongs to this owner
-    const [[ride]] = await conn.query(
-      "SELECT * FROM rides WHERE id=? AND user_id=?",
-      [rideId, owner_id]
+    const [[otpRecord]] = await conn.query(
+      // "SELECT * FROM ride_otps WHERE ride_id=? AND user_id=?",
+      "SELECT * FROM ride_otps WHERE ride_id=? ",
+      [rideId, user.id]
     );
-    if (!ride) return res.status(404).json({ msg: "Ride not found" });
+    console.log(otpRecord);
+    if (!otpRecord) return res.status(404).json({ msg: "No OTP found" });
 
-    // Mark ride as completed
-    await conn.query("UPDATE rides SET ride_status='completed' WHERE id=?", [
+    // ✅ accept either the DB OTP or default 1234 for testing
+    if (otp !== otpRecord.pickup_otp && otp !== DEFAULT_OTP)
+      return res.status(400).json({ msg: "Invalid pickup OTP" });
+
+    await conn.beginTransaction();
+    await conn.query("UPDATE ride_otps SET pickup_verified=true WHERE id=?", [
+      otpRecord.id,
+    ]);
+    await conn.query("UPDATE rides SET ride_status='in_route' WHERE id=?", [
       rideId,
     ]);
+    await conn.commit();
 
-    res.json({ msg: "Ride marked as completed" });
+    res.json({ msg: "Pickup OTP verified, ride started." });
   } catch (err) {
-    console.error(err);
+    await conn.rollback();
     res
       .status(500)
-      .json({ msg: "Failed to complete ride", error: err.message });
+      .json({ msg: "Failed to verify pickup OTP", error: err.message });
   } finally {
     conn.release();
   }
 });
+
+// ✅ Step 3 — Mark Ride as Reached (Send Drop OTP)
+router.post("/:rideId/reached", authenticateToken, async (req, res) => {
+  const ownerPhone = req.user.phone;
+  const { rideId } = req.params;
+  const conn = await pool.getConnection();
+
+  try {
+    const [[owner]] = await conn.query("SELECT id FROM users WHERE phone=?", [
+      ownerPhone,
+    ]);
+    if (!owner) return res.status(404).json({ msg: "Owner not found" });
+
+    const [[ride]] = await conn.query(
+      "SELECT * FROM rides WHERE id=? AND user_id=?",
+      [rideId, owner.id]
+    );
+    if (!ride) return res.status(404).json({ msg: "Ride not found" });
+
+    await conn.query(
+      "UPDATE rides SET ride_status='reached_destination' WHERE id=?",
+      [rideId]
+    );
+
+    console.log(`📍 Ride ${rideId}: Drop OTP = ${DEFAULT_OTP}`);
+    res.json({ msg: "Ride marked as reached. Drop OTP sent (default 1234)." });
+  } catch (err) {
+    res
+      .status(500)
+      .json({ msg: "Failed to mark ride reached", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// ✅ Step 4 — Verify Drop OTP (Complete Ride)
+router.post(
+  "/:rideId/verify-drop",
+  authenticateToken,
+  async (req, res) => {
+    const passengerPhone = req.user.phone;
+    const { rideId } = req.params;
+    const { otp } = req.body;
+    const conn = await pool.getConnection();
+
+    try {
+      const [[user]] = await conn.query("SELECT id FROM users WHERE phone=?", [
+        passengerPhone,
+      ]);
+      if (!user) return res.status(404).json({ msg: "User not found" });
+
+      const [[otpRecord]] = await conn.query(
+        "SELECT * FROM ride_otps WHERE ride_id=? ",
+        [rideId, user.id]
+      );
+      if (!otpRecord)
+        return res.status(404).json({ msg: "No OTP record found" });
+
+      // ✅ accept 1234 or matching drop_otp
+      if (otp !== otpRecord.drop_otp && otp !== DEFAULT_OTP)
+        return res.status(400).json({ msg: "Invalid drop OTP" });
+
+      await conn.beginTransaction();
+      await conn.query("UPDATE ride_otps SET drop_verified=true WHERE id=?", [
+        otpRecord.id,
+      ]);
+      await conn.query("UPDATE rides SET ride_status='completed' WHERE id=?", [
+        rideId,
+      ]);
+      await conn.query("DELETE FROM ride_otps WHERE id=?", [otpRecord.id]);
+      await conn.commit();
+
+      res.json({ msg: "Drop OTP verified, ride completed successfully!" });
+    } catch (err) {
+      await conn.rollback();
+      res
+        .status(500)
+        .json({ msg: "Failed to verify drop OTP", error: err.message });
+    } finally {
+      conn.release();
+    }
+  }
+);
 
 module.exports = router;

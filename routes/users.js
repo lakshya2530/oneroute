@@ -115,7 +115,6 @@ router.post("/verify-otp", async (req, res) => {
   }
 });
 
-
 // --- Get Profile ---
 router.get("/profile", authenticateToken, async (req, res) => {
   const { phone } = req.user;
@@ -212,5 +211,30 @@ router.put(
     }
   }
 );
+
+// --- Delete User Account ---
+router.delete("/delete-account", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  console.log(phone);
+  const conn = await pool.getConnection();
+  try {
+    const [result] = await conn.query("DELETE FROM users WHERE phone = ?", [
+      phone,
+    ]);
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ msg: "User not found or already deleted" });
+    }
+
+    res.json({ msg: "User account deleted successfully" });
+  } catch (err) {
+    console.error(err);
+    res
+      .status(500)
+      .json({ msg: "Failed to delete user account", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
 
 module.exports = router;
