@@ -49,8 +49,8 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
     await conn.query(
       `INSERT INTO rides 
       (user_id, pickup_location, pickup_lat, pickup_lng, drop_location, drop_lat, drop_lng, 
-       ride_date, ride_time, seats_available, amount_per_seat, pickup_note) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ride_date, ride_time, seats_available, amount_per_seat, pickup_note, ride_status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         user.id,
         pickup_location,
@@ -64,6 +64,7 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
         seats_available,
         amount_per_seat,
         pickup_note || null,
+        "open",
       ]
     );
 
@@ -76,50 +77,24 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
   }
 });
 
-// --- Get All Rides Near User (with optional destination) or All Rides ---
-router.get("/get-rides", authenticateToken, async (req, res) => {
-  const { lat, lng, search } = req.query;
-  const fixedRadiusKm = 5;
+// --- Get My All Rides ---
+router.get("/my-all-rides", authenticateToken, async (req, res) => {
   const { phone } = req.user;
 
   const conn = await pool.getConnection();
   try {
-    let sql = `
-      SELECT rides.* FROM rides
-      JOIN users u ON rides.user_id = u.id
-      WHERE u.phone != ?`;
-    let params = [phone];
-
-    if (search) {
-      sql += ` AND rides.drop_location LIKE ?`;
-      params.push(`%${search}%`);
+    const [userRows] = await conn.query(
+      "SELECT id FROM users WHERE phone = ?",
+      [phone]
+    );
+    if (userRows.length === 0) {
+      return res.status(404).json({ msg: "User not found" });
     }
+    const userId = userRows[0].id;
 
-    if (lat && lng) {
-      sql = `
-        SELECT rides.*,
-          (6371 * ACOS(
-            COS(RADIANS(?)) * COS(RADIANS(CAST(rides.pickup_lat AS DECIMAL(10,7)))) *
-            COS(RADIANS(CAST(rides.pickup_lng AS DECIMAL(10,7))) - RADIANS(?)) +
-            SIN(RADIANS(?)) * SIN(RADIANS(CAST(rides.pickup_lat AS DECIMAL(10,7))))
-          )) AS distance
-        FROM rides
-        JOIN users u ON rides.user_id = u.id
-        WHERE u.phone != ?
-      `;
-
-      if (search) {
-        sql += ` AND rides.drop_location LIKE ?`;
-        params.push(`%${search}%`);
-      }
-
-      sql += ` HAVING distance <= ? ORDER BY distance ASC`;
-      params.unshift(lat, lng, lat); // for distance calculation
-      params.push(fixedRadiusKm);
-      params.push(phone);
-    }
-
-    const [rides] = await conn.query(sql, params);
+    const [rides] = await conn.query("SELECT * FROM rides WHERE user_id = ?", [
+      userId,
+    ]);
 
     res.json({
       success: true,
@@ -128,11 +103,77 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ msg: "Failed to fetch rides", error: err.message });
+    res
+      .status(500)
+      .json({ msg: "Failed to fetch your rides", error: err.message });
   } finally {
     conn.release();
   }
 });
+
+// --- Get All Rides Near User (with optional destination or date filter) ---
+// --- Get All Rides Near User (with optional destination or date filter) ---
+router.get("/get-rides", authenticateToken, async (req, res) => {
+  const { search, filterDate } = req.query;
+  const { phone } = req.user;
+
+  let sql = `
+    SELECT rides.*
+    FROM rides
+    JOIN users u ON rides.user_id = u.id
+    WHERE u.phone != ?`;
+  const params = [phone];
+
+  // 🔍 Filter by search on drop location
+  if (search) {
+    sql += ` AND rides.drop_location LIKE ?`;
+    params.push(`%${search}%`);
+  }
+
+  // 🗓️ Smart Date Filtering (uses created_at when ride_date invalid)
+  const dateField = `
+    CASE 
+      WHEN rides.ride_date IS NULL 
+        OR rides.ride_date < '2000-01-01' 
+      THEN rides.created_at 
+      ELSE rides.ride_date 
+    END
+  `;
+
+  if (filterDate === "today") {
+    sql += ` AND DATE(${dateField}) = CURDATE()`;
+  } else if (filterDate === "tomorrow") {
+    sql += ` AND DATE(${dateField}) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)`;
+  } else if (filterDate && /^\d{4}-\d{2}-\d{2}$/.test(filterDate)) {
+    sql += ` AND DATE(${dateField}) = ?`;
+    params.push(filterDate);
+  }
+
+  try {
+    const conn = await pool.getConnection();
+
+    // Debug to confirm logic
+    const [debug] = await conn.query(
+      "SELECT id, ride_date, created_at FROM rides"
+    );
+    console.log("🪶 Debug rides:", debug);
+
+    const [rides] = await conn.query(sql, params);
+    conn.release();
+
+    res.json({
+      success: true,
+      count: rides.length,
+      rides,
+    });
+  } catch (err) {
+    console.error("❌ Error fetching rides:", err);
+    res.status(500).json({ msg: "Failed to fetch rides", error: err.message });
+  }
+});
+
+
+
 
 // --- Get Full Ride Details (Driver + All Customers + Vehicle) ---
 router.get("/ride/:id", authenticateToken, async (req, res) => {
@@ -321,10 +362,9 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// Request Rides
+//---------------- Request Rides (Ride Booking Flow) ----------------------
 router.post("/ride-requests", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
-
   const { ride_id, pickup_stop, no_of_seats, message } = req.body;
 
   if (!ride_id || !pickup_stop || !no_of_seats) {
@@ -333,15 +373,14 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
 
   const conn = await pool.getConnection();
   try {
-    // Get the user ID based on phone number
+    // Get the passenger's user ID based on phone number
     const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
       phone,
     ]);
     if (!user) return res.status(404).json({ msg: "User not found" });
-
     const passenger_id = user.id;
 
-    // Get ride details
+    // Get the ride details including ride owner user_id
     const [[ride]] = await conn.query("SELECT * FROM rides WHERE id = ?", [
       ride_id,
     ]);
@@ -353,13 +392,15 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
 
     const estimated_amount = no_of_seats * ride.amount_per_seat;
 
-    // Insert ride request
+    // Insert ride request with both passenger_id and ride owner_id
     await conn.query(
-      `INSERT INTO ride_requests (ride_id, passenger_id, pickup_stop, no_of_seats, estimated_amount, message) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO ride_requests 
+        (ride_id, passenger_id, owner_id, pickup_stop, no_of_seats, estimated_amount, message) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [
         ride_id,
         passenger_id,
+        ride.user_id, // <-- ride owner ID stored here
         pickup_stop,
         no_of_seats,
         estimated_amount,
@@ -377,7 +418,7 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
 });
 
 // Ride Request for Owner (Under Created Rides)
-router.get("/rides/:rideId/requests", authenticateToken, async (req, res) => {
+router.get("/:rideId/requests", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
   const { rideId } = req.params;
 
@@ -481,10 +522,16 @@ router.post(
 
         await conn.query(
           `
-        INSERT INTO ride_otps (ride_id, user_id, pickup_otp, drop_otp, pickup_verified, drop_verified, created_at)
-        VALUES (?, ?, ?, ?, false, false, NOW())
-      `,
-          [request.ride_id, request.passenger_id, pickupOTP, dropOTP]
+  INSERT INTO ride_otps (ride_id, user_id, owner_id, pickup_otp, drop_otp, pickup_verified, drop_verified, created_at)
+  VALUES (?, ?, ?, ?, ?, false, false, NOW())
+  `,
+          [
+            request.ride_id,
+            request.passenger_id,
+            request.owner_id,
+            pickupOTP,
+            dropOTP,
+          ]
         );
 
         await conn.commit();
@@ -533,14 +580,13 @@ router.post("/:rideId/verify-pickup", authenticateToken, async (req, res) => {
     ]);
     if (!user) return res.status(404).json({ msg: "User not found" });
 
-    console.log(user);
+    console.log(user.id, rideId);
 
     const [[otpRecord]] = await conn.query(
-      // "SELECT * FROM ride_otps WHERE ride_id=? AND user_id=?",
-      "SELECT * FROM ride_otps WHERE ride_id=? ",
+      "SELECT * FROM ride_otps WHERE ride_id=? AND owner_id=?",
+      // "SELECT * FROM ride_otps WHERE ride_id=? ",
       [rideId, user.id]
     );
-    console.log(otpRecord);
     if (!otpRecord) return res.status(404).json({ msg: "No OTP found" });
 
     // ✅ accept either the DB OTP or default 1234 for testing
@@ -602,52 +648,47 @@ router.post("/:rideId/reached", authenticateToken, async (req, res) => {
 });
 
 // ✅ Step 4 — Verify Drop OTP (Complete Ride)
-router.post(
-  "/:rideId/verify-drop",
-  authenticateToken,
-  async (req, res) => {
-    const passengerPhone = req.user.phone;
-    const { rideId } = req.params;
-    const { otp } = req.body;
-    const conn = await pool.getConnection();
+router.post("/:rideId/verify-drop", authenticateToken, async (req, res) => {
+  const passengerPhone = req.user.phone;
+  const { rideId } = req.params;
+  const { otp } = req.body;
+  const conn = await pool.getConnection();
 
-    try {
-      const [[user]] = await conn.query("SELECT id FROM users WHERE phone=?", [
-        passengerPhone,
-      ]);
-      if (!user) return res.status(404).json({ msg: "User not found" });
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone=?", [
+      passengerPhone,
+    ]);
+    if (!user) return res.status(404).json({ msg: "User not found" });
+    console.log(rideId, user.id);
 
-      const [[otpRecord]] = await conn.query(
-        "SELECT * FROM ride_otps WHERE ride_id=? ",
-        [rideId, user.id]
-      );
-      if (!otpRecord)
-        return res.status(404).json({ msg: "No OTP record found" });
+    const [[otpRecord]] = await conn.query(
+      "SELECT * FROM ride_otps WHERE ride_id=? AND owner_id=?",
+      [rideId, user.id]
+    );
+    if (!otpRecord) return res.status(404).json({ msg: "No OTP record found" });
+    // ✅ accept 1234 or matching drop_otp
+    if (otp !== otpRecord.drop_otp && otp !== DEFAULT_OTP)
+      return res.status(400).json({ msg: "Invalid drop OTP" });
 
-      // ✅ accept 1234 or matching drop_otp
-      if (otp !== otpRecord.drop_otp && otp !== DEFAULT_OTP)
-        return res.status(400).json({ msg: "Invalid drop OTP" });
+    await conn.beginTransaction();
+    await conn.query("UPDATE ride_otps SET drop_verified=true WHERE id=?", [
+      otpRecord.id,
+    ]);
+    await conn.query("UPDATE rides SET ride_status='completed' WHERE id=?", [
+      rideId,
+    ]);
+    await conn.query("DELETE FROM ride_otps WHERE id=?", [otpRecord.id]);
+    await conn.commit();
 
-      await conn.beginTransaction();
-      await conn.query("UPDATE ride_otps SET drop_verified=true WHERE id=?", [
-        otpRecord.id,
-      ]);
-      await conn.query("UPDATE rides SET ride_status='completed' WHERE id=?", [
-        rideId,
-      ]);
-      await conn.query("DELETE FROM ride_otps WHERE id=?", [otpRecord.id]);
-      await conn.commit();
-
-      res.json({ msg: "Drop OTP verified, ride completed successfully!" });
-    } catch (err) {
-      await conn.rollback();
-      res
-        .status(500)
-        .json({ msg: "Failed to verify drop OTP", error: err.message });
-    } finally {
-      conn.release();
-    }
+    res.json({ msg: "Drop OTP verified, ride completed successfully!" });
+  } catch (err) {
+    await conn.rollback();
+    res
+      .status(500)
+      .json({ msg: "Failed to verify drop OTP", error: err.message });
+  } finally {
+    conn.release();
   }
-);
+});
 
 module.exports = router;
