@@ -37,6 +37,8 @@ router.post("/:rideId/send", authenticateToken, async (req, res) => {
 router.get("/:rideId/history", authenticateToken, async (req, res) => {
   const { rideId } = req.params;
   const userPhone = req.user.phone;
+  console.log(rideId, userPhone);
+
   const conn = await pool.getConnection();
   try {
     const [[user]] = await conn.query("SELECT id FROM users WHERE phone=?", [
