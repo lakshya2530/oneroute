@@ -84,21 +84,22 @@ router.get("/my-all-rides", authenticateToken, async (req, res) => {
   const conn = await pool.getConnection();
   try {
     const [userRows] = await conn.query(
-      "SELECT id FROM users WHERE phone = ?",
+      "SELECT id, fullname, phone, gender, dob, occupation, address, city, state, gov_id_number, profile_pic FROM users WHERE phone = ?",
       [phone]
     );
     if (userRows.length === 0) {
       return res.status(404).json({ msg: "User not found" });
     }
-    const userId = userRows[0].id;
+    const user = userRows[0];
 
     const [rides] = await conn.query("SELECT * FROM rides WHERE user_id = ?", [
-      userId,
+      user.id,
     ]);
 
     res.json({
       success: true,
       count: rides.length,
+      user: user,
       rides,
     });
   } catch (err) {
@@ -110,6 +111,43 @@ router.get("/my-all-rides", authenticateToken, async (req, res) => {
     conn.release();
   }
 });
+
+
+// Get My Offered Rides
+router.get("/my_offered_ride", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+
+  const conn = await pool.getConnection();
+  try {
+    // Get logged-in user's id
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+    if (!user) return res.status(404).json({ msg: "User not found" });
+
+    const ownerId = user.id;
+
+    // Extract all ride requests where the logged-in user is owner_id
+    const [rideRequests] = await conn.query(
+      "SELECT * FROM ride_requests WHERE owner_id = ? AND status = ?",
+      [ownerId, "accepted"]
+    );
+
+    res.json({
+      success: true,
+      count: rideRequests.length,
+      rideRequests,
+    });
+  } catch (err) {
+    console.error(err);
+    res
+      .status(500)
+      .json({ msg: "Failed to fetch offered rides", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
 
 // --- Get All Rides Near User (with optional destination or date filter) ---
 router.get("/get-rides", authenticateToken, async (req, res) => {
