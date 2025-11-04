@@ -112,7 +112,6 @@ router.get("/my-all-rides", authenticateToken, async (req, res) => {
 });
 
 // --- Get All Rides Near User (with optional destination or date filter) ---
-// --- Get All Rides Near User (with optional destination or date filter) ---
 router.get("/get-rides", authenticateToken, async (req, res) => {
   const { search, filterDate } = req.query;
   const { phone } = req.user;
@@ -171,9 +170,6 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     res.status(500).json({ msg: "Failed to fetch rides", error: err.message });
   }
 });
-
-
-
 
 // --- Get Full Ride Details (Driver + All Customers + Vehicle) ---
 router.get("/ride/:id", authenticateToken, async (req, res) => {
@@ -362,6 +358,92 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
   }
 });
 
+// --- Get My All Ride Requests (Joined with Ride Details + Filter) ---
+router.get("/my-all-ride-requests", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const { status } = req.query; // optional filter: accepted | pending | rejected | cancelled
+
+  const conn = await pool.getConnection();
+  try {
+    // 1️⃣ Get logged-in user ID
+    const [userRows] = await conn.query(
+      "SELECT id FROM users WHERE phone = ?",
+      [phone]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    const userId = userRows[0].id;
+
+    // 2️⃣ Base query: Join ride_request + rides
+    let query = `
+      SELECT 
+        rr.id AS request_id,
+        rr.ride_id,
+        rr.passenger_id,
+        rr.owner_id,
+        rr.pickup_stop,
+        rr.no_of_seats,
+        rr.estimated_amount,
+        rr.message,
+        rr.status AS request_status,
+        rr.created_at AS request_created_at,
+        rr.pickup_stop_lat,
+        rr.pickup_stop_lng,
+
+        r.user_id AS ride_owner_id,
+        r.pickup_location AS ride_pickup_location,
+        r.pickup_lat AS ride_pickup_lat,
+        r.pickup_lng AS ride_pickup_lng,
+        r.drop_location AS ride_drop_location,
+        r.drop_lat AS ride_drop_lat,
+        r.drop_lng AS ride_drop_lng,
+        r.ride_date,
+        r.ride_time,
+        r.seats_available,
+        r.amount_per_seat,
+        r.pickup_note,
+        r.ride_status,
+        r.created_at AS ride_created_at
+      FROM ride_requests rr
+      LEFT JOIN rides r ON rr.ride_id = r.id
+      WHERE rr.passenger_id = ?
+    `;
+
+    const params = [userId];
+
+    // 3️⃣ Optional filtering by request status
+    if (status) {
+      query += " AND rr.status = ?";
+      params.push(status);
+    }
+
+    query += " ORDER BY rr.created_at DESC";
+
+    // 4️⃣ Execute query
+    const [rideRequests] = await conn.query(query, params);
+
+    res.json({
+      success: true,
+      filter: status || "all",
+      count: rideRequests.length,
+      rideRequests,
+    });
+  } catch (err) {
+    console.error("Error fetching ride requests:", err);
+    res.status(500).json({
+      msg: "Failed to fetch ride requests",
+      error: err.message,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+// ------------ Get Users Offered Rides --------------------
+
 //---------------- Request Rides (Ride Booking Flow) ----------------------
 router.post("/ride-requests", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
@@ -469,7 +551,7 @@ router.post(
   async (req, res) => {
     const ownerPhone = req.user.phone;
     const { requestId } = req.params;
-    const { action } = req.body;
+    const { action, passenger_id } = req.body;
     const conn = await pool.getConnection();
 
     try {
@@ -571,7 +653,7 @@ router.post(
 router.post("/:rideId/verify-pickup", authenticateToken, async (req, res) => {
   const passengerPhone = req.user.phone;
   const { rideId } = req.params;
-  const { otp } = req.body;
+  const { otp, passenger_id } = req.body;
   const conn = await pool.getConnection();
 
   try {
@@ -583,9 +665,9 @@ router.post("/:rideId/verify-pickup", authenticateToken, async (req, res) => {
     console.log(user.id, rideId);
 
     const [[otpRecord]] = await conn.query(
-      "SELECT * FROM ride_otps WHERE ride_id=? AND owner_id=?",
+      "SELECT * FROM ride_otps WHERE ride_id=? AND owner_id=? AND user_id=?",
       // "SELECT * FROM ride_otps WHERE ride_id=? ",
-      [rideId, user.id]
+      [rideId, user.id, passenger_id]
     );
     if (!otpRecord) return res.status(404).json({ msg: "No OTP found" });
 
@@ -613,7 +695,7 @@ router.post("/:rideId/verify-pickup", authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Step 3 — Mark Ride as Reached (Send Drop OTP)
+//  Mark Ride as Reached (Send Drop OTP)
 router.post("/:rideId/reached", authenticateToken, async (req, res) => {
   const ownerPhone = req.user.phone;
   const { rideId } = req.params;
@@ -647,11 +729,11 @@ router.post("/:rideId/reached", authenticateToken, async (req, res) => {
   }
 });
 
-// ✅ Step 4 — Verify Drop OTP (Complete Ride)
+//  Verify Drop OTP (Complete Ride)
 router.post("/:rideId/verify-drop", authenticateToken, async (req, res) => {
   const passengerPhone = req.user.phone;
   const { rideId } = req.params;
-  const { otp } = req.body;
+  const { otp, passenger_id } = req.body;
   const conn = await pool.getConnection();
 
   try {
@@ -659,7 +741,7 @@ router.post("/:rideId/verify-drop", authenticateToken, async (req, res) => {
       passengerPhone,
     ]);
     if (!user) return res.status(404).json({ msg: "User not found" });
-    console.log(rideId, user.id);
+    console.log(rideId, user.id, passenger_id);
 
     const [[otpRecord]] = await conn.query(
       "SELECT * FROM ride_otps WHERE ride_id=? AND owner_id=?",
@@ -677,6 +759,10 @@ router.post("/:rideId/verify-drop", authenticateToken, async (req, res) => {
     await conn.query("UPDATE rides SET ride_status='completed' WHERE id=?", [
       rideId,
     ]);
+    await conn.query(
+      "UPDATE ride_requests SET status='completed' WHERE passenger_id=?",
+      [passenger_id]
+    );
     await conn.query("DELETE FROM ride_otps WHERE id=?", [otpRecord.id]);
     await conn.commit();
 
