@@ -622,7 +622,7 @@ router.post(
         await conn.query(
           `
   INSERT INTO ride_otps (ride_id, user_id, owner_id, pickup_otp, drop_otp, pickup_verified, drop_verified, created_at)
-  VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
+  VALUES (?, ?, ?, ?, ?, false, false, NOW())
   `,
           [
             request.ride_id,
