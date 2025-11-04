@@ -151,19 +151,7 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
     const rideRequests = rideRequestsRaw.map((rr) => ({
       ...rr,
       owner: owner,
-      customer: {
-        id: rr.passenger_id,
-        fullname: rr.passenger_fullname,
-        phone: rr.passenger_phone,
-        gender: rr.passenger_gender,
-        dob: rr.passenger_dob,
-        occupation: rr.passenger_occupation,
-        address: rr.passenger_address,
-        city: rr.passenger_city,
-        state: rr.passenger_state,
-        gov_id_number: rr.passenger_gov_id_number,
-        profile_pic: rr.passenger_profile_pic,
-      },
+     
     }));
 
     res.json({
