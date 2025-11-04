@@ -23,11 +23,13 @@ const userRoutes = require("./routes/users");
 const vehicleRoutes = require("./routes/vehicles");
 const accountRoutes = require("./routes/account");
 const ridesRoutes = require("./routes/rides");
+const cahtRoutes = require("./routes/chat");
 
 app.use("/api/users", userRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/rides", ridesRoutes);
+app.use("/api/chat", cahtRoutes);
 
 // Start server
 app.listen(PORT, () => {

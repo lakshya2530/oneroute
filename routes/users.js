@@ -238,29 +238,5 @@ router.delete("/delete-account", authenticateToken, async (req, res) => {
 
 
 
-// Chat History
-router.get("/:rideId/history", authenticateToken, async (req, res) => {
-  const { rideId } = req.params;
-  const userPhone = req.user.phone;
-  console.log(rideId, userPhone);
-
-  const conn = await pool.getConnection();
-  try {
-    const [[user]] = await conn.query("SELECT id FROM users WHERE phone=?", [
-      userPhone,
-    ]);
-    const [history] = await conn.query(
-      `SELECT * FROM messages WHERE ride_id=? AND (sender_id=? OR receiver_id=?) ORDER BY sent_at ASC`,
-      [rideId, user.id, user.id]
-    );
-    res.json({ history });
-  } catch (err) {
-    res
-      .status(500)
-      .json({ msg: "Failed to fetch chat history", error: err.message });
-  } finally {
-    conn.release();
-  }
-});
 
 module.exports = router;
