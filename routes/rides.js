@@ -629,7 +629,7 @@ router.post(
             request.passenger_id,
             request.owner_id,
             pickupOTP,
-            // dropOTP,
+            dropOTP,
           ]
         );
 

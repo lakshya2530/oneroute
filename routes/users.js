@@ -236,7 +236,4 @@ router.delete("/delete-account", authenticateToken, async (req, res) => {
   }
 });
 
-
-
-
 module.exports = router;
