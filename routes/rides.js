@@ -170,6 +170,7 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
 
 // --- Get All Rides Near User (with optional destination or date filter) ---
 // --- Get All Rides Near User (with optional destination or date filter) ---
+// --- Get All Rides Near User (with optional destination or date filter) ---
 router.get("/get-rides", authenticateToken, async (req, res) => {
   const { search, filterDate } = req.query;
   const { phone } = req.user;
@@ -198,26 +199,20 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     )
   `;
 
+  // ✅ Fixed timezone-safe comparison
   if (filterDate === "today") {
-    sql += ` AND ${dateCondition} = CURDATE()`;
+    sql += ` AND ${dateCondition} = DATE(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+05:30'))`;
   } else if (filterDate === "tomorrow") {
-    sql += ` AND ${dateCondition} = DATE_ADD(CURDATE(), INTERVAL 1 DAY)`;
+    sql += ` AND ${dateCondition} = DATE(DATE_ADD(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+05:30'), INTERVAL 1 DAY))`;
   } else if (filterDate && /^\d{4}-\d{2}-\d{2}$/.test(filterDate)) {
     sql += ` AND ${dateCondition} = ?`;
     params.push(filterDate);
   }
 
-  // Order newest rides first
   sql += ` ORDER BY rides.created_at DESC`;
 
   try {
     const conn = await pool.getConnection();
-
-    // 🧠 Debug raw dates to verify fallback
-    const [debug] = await conn.query(
-      "SELECT id, ride_date, created_at FROM rides ORDER BY created_at DESC"
-    );
-    console.log("🪶 Debug rides:", debug);
 
     const [rides] = await conn.query(sql, params);
     conn.release();
@@ -232,6 +227,7 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     res.status(500).json({ msg: "Failed to fetch rides", error: err.message });
   }
 });
+
 
 
 // --- Get Full Ride Details (Driver + All Customers + Vehicle) ---
