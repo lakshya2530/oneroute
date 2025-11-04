@@ -277,66 +277,70 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
     // --- 6. Get all Customers who requested this ride ---
     const [requestRows] = await conn.query(
       `
-      SELECT 
-        rr.id AS request_id,
-        rr.pickup_stop,
-        rr.no_of_seats,
-        rr.estimated_amount,
-        rr.message,
-        rr.status,
-        rr.created_at AS request_created_at,
-        rr.pickup_stop_lat,
-        rr.pickup_stop_lng,
-        u.id AS user_id,
-        u.fullname,
-        u.phone,
-        u.gender,
-        u.dob,
-        u.occupation,
-        u.address,
-        u.city,
-        u.state,
-        u.gov_id_number,
-        u.profile_pic,
-        u.gov_id_image
-      FROM ride_requests rr
-      LEFT JOIN users u ON rr.passenger_id = u.id
-      WHERE rr.ride_id = ?
-      ORDER BY rr.created_at DESC
-      `,
+  SELECT 
+    rr.id AS request_id,
+    rr.pickup_stop,
+    rr.no_of_seats,
+    rr.estimated_amount,
+    rr.message,
+    rr.status,
+    rr.created_at AS request_created_at,
+    rr.pickup_stop_lat,
+    rr.pickup_stop_lng,
+    u.id AS user_id,
+    u.fullname,
+    u.phone,
+    u.gender,
+    u.dob,
+    u.occupation,
+    u.address,
+    u.city,
+    u.state,
+    u.gov_id_number,
+    u.profile_pic,
+    u.gov_id_image
+  FROM ride_requests rr
+  LEFT JOIN users u ON rr.passenger_id = u.id
+  WHERE rr.ride_id = ? AND rr.status = 'accepted'
+  ORDER BY rr.created_at DESC
+  LIMIT 1
+  `,
       [id]
     );
 
     // --- 7. Structure all Customer Request Details ---
-    const customers = requestRows.map((row) => ({
-      request_id: row.request_id,
-      pickup_stop: row.pickup_stop,
-      no_of_seats: row.no_of_seats,
-      estimated_amount: row.estimated_amount,
-      message: row.message,
-      status: row.status,
-      request_created_at: row.request_created_at,
-      pickup_stop_lat: row.pickup_stop_lat,
-      pickup_stop_lng: row.pickup_stop_lng,
-      customer: {
-        id: row.user_id,
-        fullname: row.fullname,
-        phone: row.phone,
-        gender: row.gender,
-        dob: row.dob,
-        occupation: row.occupation,
-        address: row.address,
-        city: row.city,
-        state: row.state,
-        gov_id_number: row.gov_id_number,
-        profile_pic: row.profile_pic
-          ? BASE_URL + row.profile_pic.replace(/\\/g, "/")
-          : null,
-        gov_id_image: row.gov_id_image
-          ? BASE_URL + row.gov_id_image.replace(/\\/g, "/")
-          : null,
-      },
-    }));
+    const customers =
+      requestRows.length > 0
+        ? {
+            request_id: requestRows[0].request_id,
+            pickup_stop: requestRows[0].pickup_stop,
+            no_of_seats: requestRows[0].no_of_seats,
+            estimated_amount: requestRows[0].estimated_amount,
+            message: requestRows[0].message,
+            status: requestRows[0].status,
+            request_created_at: requestRows[0].request_created_at,
+            pickup_stop_lat: requestRows[0].pickup_stop_lat,
+            pickup_stop_lng: requestRows[0].pickup_stop_lng,
+            customer: {
+              id: requestRows[0].user_id,
+              fullname: requestRows[0].fullname,
+              phone: requestRows[0].phone,
+              gender: requestRows[0].gender,
+              dob: requestRows[0].dob,
+              occupation: requestRows[0].occupation,
+              address: requestRows[0].address,
+              city: requestRows[0].city,
+              state: requestRows[0].state,
+              gov_id_number: requestRows[0].gov_id_number,
+              profile_pic: requestRows[0].profile_pic
+                ? BASE_URL + requestRows[0].profile_pic.replace(/\\/g, "/")
+                : null,
+              gov_id_image: requestRows[0].gov_id_image
+                ? BASE_URL + requestRows[0].gov_id_image.replace(/\\/g, "/")
+                : null,
+            },
+          }
+        : null;
 
     // --- 8. Send Combined Data ---
     res.json({
@@ -506,8 +510,11 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
 
   const conn = await pool.getConnection();
   try {
+    const baseUrl =
+      process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+
     // Get owner id from phone
-    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+    const [[user]] = await conn.query("SELECT * FROM users WHERE phone = ?", [
       phone,
     ]);
     if (!user) return res.status(404).json({ msg: "User not found" });
@@ -525,13 +532,23 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
         .json({ msg: "Ride not found or you are not the owner" });
 
     // Fetch ride requests along with passenger details
-    const [requests] = await conn.query(
+    const [requestsRaw] = await conn.query(
       `SELECT rr.*, u.id AS user_id, u.fullname, u.phone, u.gender, u.profile_pic
        FROM ride_requests rr
        JOIN users u ON rr.passenger_id = u.id
        WHERE rr.ride_id = ?`,
       [rideId]
     );
+
+    // Add full URLs dynamically for profile_pic and gov_id_image fields
+    const requests = requestsRaw.map((r) => {
+      return {
+        ...r,
+        profile_pic: r.profile_pic
+          ? `${baseUrl}/${r.profile_pic.replace(/\\/g, "/")}`
+          : null,
+      };
+    });
 
     res.json({ ride, requests });
   } catch (err) {
@@ -612,7 +629,7 @@ router.post(
             request.passenger_id,
             request.owner_id,
             pickupOTP,
-            dropOTP,
+            // dropOTP,
           ]
         );
 
@@ -719,7 +736,10 @@ router.post("/:rideId/reached", authenticateToken, async (req, res) => {
     );
 
     console.log(`📍 Ride ${rideId}: Drop OTP = ${DEFAULT_OTP}`);
-    res.json({ msg: "Ride marked as reached. Drop OTP sent (default 1234)." });
+    res.json({
+      msg: "Ride marked as reached. Drop OTP sent (default 1234).",
+      dropOTP: DEFAULT_OTP,
+    });
   } catch (err) {
     res
       .status(500)
