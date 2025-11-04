@@ -151,7 +151,6 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
     const rideRequests = rideRequestsRaw.map((rr) => ({
       ...rr,
       owner: owner,
-     
     }));
 
     res.json({
@@ -169,6 +168,7 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
   }
 });
 
+// --- Get All Rides Near User (with optional destination or date filter) ---
 // --- Get All Rides Near User (with optional destination or date filter) ---
 router.get("/get-rides", authenticateToken, async (req, res) => {
   const { search, filterDate } = req.query;
@@ -188,30 +188,34 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
   }
 
   // 🗓️ Smart Date Filtering (uses created_at when ride_date invalid)
-  const dateField = `
-    CASE 
-      WHEN rides.ride_date IS NULL 
-        OR rides.ride_date < '2000-01-01' 
-      THEN rides.created_at 
-      ELSE rides.ride_date 
-    END
+  const dateCondition = `
+    DATE(
+      IF(
+        rides.ride_date IS NULL OR rides.ride_date < '2000-01-01',
+        CONVERT_TZ(rides.created_at, '+00:00', '+05:30'),
+        CONVERT_TZ(rides.ride_date, '+00:00', '+05:30')
+      )
+    )
   `;
 
   if (filterDate === "today") {
-    sql += ` AND DATE(${dateField}) = CURDATE()`;
+    sql += ` AND ${dateCondition} = CURDATE()`;
   } else if (filterDate === "tomorrow") {
-    sql += ` AND DATE(${dateField}) = DATE_ADD(CURDATE(), INTERVAL 1 DAY)`;
+    sql += ` AND ${dateCondition} = DATE_ADD(CURDATE(), INTERVAL 1 DAY)`;
   } else if (filterDate && /^\d{4}-\d{2}-\d{2}$/.test(filterDate)) {
-    sql += ` AND DATE(${dateField}) = ?`;
+    sql += ` AND ${dateCondition} = ?`;
     params.push(filterDate);
   }
+
+  // Order newest rides first
+  sql += ` ORDER BY rides.created_at DESC`;
 
   try {
     const conn = await pool.getConnection();
 
-    // Debug to confirm logic
+    // 🧠 Debug raw dates to verify fallback
     const [debug] = await conn.query(
-      "SELECT id, ride_date, created_at FROM rides"
+      "SELECT id, ride_date, created_at FROM rides ORDER BY created_at DESC"
     );
     console.log("🪶 Debug rides:", debug);
 
@@ -228,6 +232,7 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     res.status(500).json({ msg: "Failed to fetch rides", error: err.message });
   }
 });
+
 
 // --- Get Full Ride Details (Driver + All Customers + Vehicle) ---
 router.get("/ride/:id", authenticateToken, async (req, res) => {
