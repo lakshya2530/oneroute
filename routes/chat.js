@@ -109,4 +109,52 @@ router.post("/:rideId/read", authenticateToken, async (req, res) => {
   }
 });
 
+// All Users the Logged-in User Has Chatted With (with latest ride_id)
+router.get("/chat-users", authenticateToken, async (req, res) => {
+  const userPhone = req.user.phone;
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      userPhone,
+    ]);
+    if (!user) return res.status(404).json({ msg: "User not found" });
+
+    const [users] = await conn.query(
+      `
+      SELECT DISTINCT u.id, u.fullname, u.phone,
+             (
+               SELECT m2.ride_id 
+               FROM messages m2 
+               WHERE (
+                 (m2.sender_id = ? AND m2.receiver_id = u.id)
+                 OR
+                 (m2.receiver_id = ? AND m2.sender_id = u.id)
+               )
+               ORDER BY m2.sent_at DESC 
+               LIMIT 1
+             ) AS ride_id
+      FROM users u
+      JOIN messages m 
+        ON (
+          (m.sender_id = ? AND m.receiver_id = u.id)
+          OR 
+          (m.receiver_id = ? AND m.sender_id = u.id)
+        )
+      WHERE u.id != ?
+      ORDER BY u.fullname ASC
+      `,
+      [user.id, user.id, user.id, user.id, user.id]
+    );
+
+    res.json({ users });
+  } catch (err) {
+    console.error("Error fetching chat users:", err);
+    res
+      .status(500)
+      .json({ msg: "Failed to fetch chat users", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;
