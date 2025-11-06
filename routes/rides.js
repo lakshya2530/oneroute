@@ -129,39 +129,36 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
 
     const ownerId = owner.id;
 
-    // Fetch accepted ride requests + passenger details + ride details
     const [rideRequestsRaw] = await conn.query(
       `
-      SELECT 
-        rr.*,
-        u.id AS passenger_id,
-        u.fullname AS passenger_fullname,
-        u.phone AS passenger_phone,
-        u.gender AS passenger_gender,
-        u.dob AS passenger_dob,
-        u.occupation AS passenger_occupation,
-        u.address AS passenger_address,
-        u.city AS passenger_city,
-        u.state AS passenger_state,
-        u.gov_id_number AS passenger_gov_id_number,
-        u.profile_pic AS passenger_profile_pic,
-        r.pickup_location,
-        r.drop_location,
-        r.ride_date,
-        r.ride_time,
-        r.amount_per_seat
-      FROM ride_requests rr
-      JOIN users u ON rr.passenger_id = u.id
-      JOIN rides r ON rr.ride_id = r.id
-      WHERE rr.owner_id = ? AND rr.status = 'accepted'
-      ORDER BY r.ride_date DESC
-      `,
+  SELECT rr.id, rr.ride_id, rr.passenger_id, rr.pickup_stop, rr.no_of_seats,
+         rr.estimated_amount, rr.message, rr.status, rr.created_at,
+         rr.pickup_stop_lat, rr.pickup_stop_lng, rr.owner_id,
+         r.pickup_location, r.drop_location, r.ride_date, r.ride_time, r.amount_per_seat,
+         u.id AS passenger_id, u.fullname AS passenger_fullname, u.phone AS passenger_phone,
+         u.gender AS passenger_gender, u.dob AS passenger_dob, u.occupation AS passenger_occupation,
+         u.address AS passenger_address, u.city AS passenger_city, u.state AS passenger_state,
+         u.gov_id_number AS passenger_gov_id_number, u.profile_pic AS passenger_profile_pic
+  FROM ride_requests rr
+  JOIN rides r ON rr.ride_id = r.id
+  JOIN users u ON rr.passenger_id = u.id
+  WHERE rr.owner_id = ? AND rr.status = 'accepted'
+`,
       [ownerId]
     );
 
-    // Structure the data with owner details inside each ride request
     const rideRequests = rideRequestsRaw.map((rr) => ({
-      ...rr,
+      id: rr.id,
+      ride_id: rr.ride_id,
+      pickup_stop: rr.pickup_stop,
+      no_of_seats: rr.no_of_seats,
+      estimated_amount: rr.estimated_amount,
+      message: rr.message,
+      status: rr.status,
+      created_at: rr.created_at,
+      pickup_stop_lat: rr.pickup_stop_lat,
+      pickup_stop_lng: rr.pickup_stop_lng,
+      owner_id: rr.owner_id,
       owner,
       ride: {
         id: rr.ride_id,
