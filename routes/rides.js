@@ -112,27 +112,31 @@ router.get("/my-all-rides", authenticateToken, async (req, res) => {
   }
 });
 
-// Get My Offered Rides
+// Get My Offered Rides (with Drop Location)
 router.get("/my_offered_ride", authenticateToken, async (req, res) => {
   const { phone } = req.user;
-
   const conn = await pool.getConnection();
+
   try {
-    // Get logged-in user's id and details
+    // Get owner info
     const [[owner]] = await conn.query(
-      "SELECT id, fullname, phone, gender, dob, occupation, address, city, state, gov_id_number, profile_pic FROM users WHERE phone = ?",
+      `SELECT id, fullname, phone, gender, dob, occupation, address, city, state, gov_id_number, profile_pic 
+       FROM users 
+       WHERE phone = ?`,
       [phone]
     );
     if (!owner) return res.status(404).json({ msg: "User not found" });
 
     const ownerId = owner.id;
 
-    // Extract all ride requests where the logged-in user is owner and status accepted
+    // Fetch accepted ride requests + passenger details + ride details
     const [rideRequestsRaw] = await conn.query(
-      `SELECT rr.*, 
-        u.id AS passenger_id, 
-        u.fullname AS passenger_fullname, 
-        u.phone AS passenger_phone, 
+      `
+      SELECT 
+        rr.*,
+        u.id AS passenger_id,
+        u.fullname AS passenger_fullname,
+        u.phone AS passenger_phone,
         u.gender AS passenger_gender,
         u.dob AS passenger_dob,
         u.occupation AS passenger_occupation,
@@ -140,17 +144,46 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
         u.city AS passenger_city,
         u.state AS passenger_state,
         u.gov_id_number AS passenger_gov_id_number,
-        u.profile_pic AS passenger_profile_pic
-       FROM ride_requests rr
-       JOIN users u ON rr.passenger_id = u.id
-       WHERE rr.owner_id = ? AND rr.status = 'accepted'`,
+        u.profile_pic AS passenger_profile_pic,
+        r.pickup_location,
+        r.drop_location,
+        r.ride_date,
+        r.ride_time,
+        r.amount_per_seat
+      FROM ride_requests rr
+      JOIN users u ON rr.passenger_id = u.id
+      JOIN rides r ON rr.ride_id = r.id
+      WHERE rr.owner_id = ? AND rr.status = 'accepted'
+      ORDER BY r.ride_date DESC
+      `,
       [ownerId]
     );
 
-    // Map to include owner details and passenger details structured separately
+    // Structure the data with owner details inside each ride request
     const rideRequests = rideRequestsRaw.map((rr) => ({
       ...rr,
-      owner: owner,
+      owner,
+      ride: {
+        id: rr.ride_id,
+        pickup_location: rr.pickup_location,
+        drop_location: rr.drop_location,
+        ride_date: rr.ride_date,
+        ride_time: rr.ride_time,
+        amount_per_seat: rr.amount_per_seat,
+      },
+      passenger: {
+        id: rr.passenger_id,
+        fullname: rr.passenger_fullname,
+        phone: rr.passenger_phone,
+        gender: rr.passenger_gender,
+        dob: rr.passenger_dob,
+        occupation: rr.passenger_occupation,
+        address: rr.passenger_address,
+        city: rr.passenger_city,
+        state: rr.passenger_state,
+        gov_id_number: rr.passenger_gov_id_number,
+        profile_pic: rr.passenger_profile_pic,
+      },
     }));
 
     res.json({
@@ -168,8 +201,6 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
   }
 });
 
-// --- Get All Rides Near User (with optional destination or date filter) ---
-// --- Get All Rides Near User (with optional destination or date filter) ---
 // --- Get All Rides Near User (with optional destination or date filter) ---
 router.get("/get-rides", authenticateToken, async (req, res) => {
   const { search, filterDate } = req.query;
@@ -227,8 +258,6 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     res.status(500).json({ msg: "Failed to fetch rides", error: err.message });
   }
 });
-
-
 
 // --- Get Full Ride Details (Driver + All Customers + Vehicle) ---
 router.get("/ride/:id", authenticateToken, async (req, res) => {
