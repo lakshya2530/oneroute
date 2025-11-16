@@ -9,8 +9,8 @@ const mysql = require('mysql2');
 // });
 const connection = mysql.createPool({
     host: 'localhost',
-    user: 'oneroute',
-    password: 'Oneroute@123',
+    user: '',
+    password: '',
     database: 'oneroute',
     connectionLimit: 10
   });

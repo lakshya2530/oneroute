@@ -25,11 +25,16 @@ const accountRoutes = require("./routes/account");
 const ridesRoutes = require("./routes/rides");
 const chatRoutes = require("./routes/chat");
 
+// admin routes
+
+
 app.use("/api/users", userRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/rides", ridesRoutes);
 app.use("/api/chat", chatRoutes);
+
+// admin
 
 // Start server
 app.listen(PORT, () => {
