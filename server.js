@@ -25,11 +25,19 @@ const accountRoutes = require("./routes/account");
 const ridesRoutes = require("./routes/rides");
 const cahtRoutes = require("./routes/chat");
 
+// admin
+const adminCmsRoutes = require("./admin/routes/cms");
+const adminTicketRoutes = require("./admin/routes/ticket");
+
+
 app.use("/api/users", userRoutes);
 app.use("/api/vehicles", vehicleRoutes);
 app.use("/api/accounts", accountRoutes);
 app.use("/api/rides", ridesRoutes);
 app.use("/api/chat", cahtRoutes);
+
+app.use("/api/admin/cms", adminCmsRoutes);
+app.use("/api/admin/ticket", adminTicketRoutes);
 
 // Start server
 app.listen(PORT, () => {
