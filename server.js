@@ -28,6 +28,8 @@ const cahtRoutes = require("./routes/chat");
 // admin
 const adminCmsRoutes = require("./admin/routes/cms");
 const adminTicketRoutes = require("./admin/routes/ticket");
+const commissionRoutes = require("./admin/routes/commission");
+const bookingsRoutes = require("./admin/routes/bookings");
 
 
 app.use("/api/users", userRoutes);
@@ -38,6 +40,9 @@ app.use("/api/chat", cahtRoutes);
 
 app.use("/api/admin/cms", adminCmsRoutes);
 app.use("/api/admin/ticket", adminTicketRoutes);
+app.use("/api/admin/commission", commissionRoutes);
+app.use("/api/admin/bookings", bookingsRoutes);
+
 
 // Start server
 app.listen(PORT, () => {
