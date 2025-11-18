@@ -4,7 +4,7 @@ const pool = require("../../db/connection.js");
 const authenticateToken = require("../../middleware/auth.js");
 
 
-router.get("/list", authenticateToken, async (req, res) => {
+router.get("/list", async (req, res) => {
   try {
     const { status } = req.query;
 
@@ -82,7 +82,7 @@ router.get("/list", authenticateToken, async (req, res) => {
 });
 
 
-router.put("/status/:id", authenticateToken, async (req, res) => {
+router.put("/status/:id", async (req, res) => {
   try {
     const ticketId = req.params.id;
     const { status } = req.body;

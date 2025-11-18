@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require("../../db/connection.js");
 const authenticateToken = require("../../middleware/auth.js");
 
-router.get("/", authenticateToken, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const conn = await pool.getConnection();
     const [rows] = await conn.query("SELECT * FROM commission_settings LIMIT 1");
@@ -32,7 +32,7 @@ router.get("/", authenticateToken, async (req, res) => {
 /**
  * PUT — Update settings
  */
-router.put("/", authenticateToken, async (req, res) => {
+router.put("/", async (req, res) => {
   try {
     const { per_ride_commission, frequent_user_commission } = req.body;
 

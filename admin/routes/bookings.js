@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require("../../db/connection.js");
 const authenticateToken = require("../../middleware/auth.js");
 
-router.get("/", authenticateToken, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const {
       status,
@@ -131,7 +131,7 @@ WHERE 1=1
 });
 
 
-router.put("/status/:id", authenticateToken, async (req, res) => {
+router.put("/status/:id", async (req, res) => {
   try {
     const bookingId = req.params.id;
     const { status } = req.body;
@@ -175,7 +175,7 @@ router.put("/status/:id", authenticateToken, async (req, res) => {
 });
 
 
-router.put("/payment-status/:id", authenticateToken, async (req, res) => {
+router.put("/payment-status/:id", async (req, res) => {
   try {
     const bookingId = req.params.id;
     const { payment_status } = req.body;
