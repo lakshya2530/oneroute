@@ -3,7 +3,7 @@ const router = express.Router();
 const pool = require("../../db/connection.js");
 const authenticateToken = require("../../middleware/auth.js");
 
-router.get("/pages", authenticateToken, async (req, res) => {
+router.get("/pages", async (req, res) => {
   try {
     const conn = await pool.getConnection();
     const [rows] = await conn.query("SELECT * FROM cms_pages WHERE status = 1");
@@ -24,7 +24,7 @@ router.get("/pages", authenticateToken, async (req, res) => {
 });
 
 
-router.post("/pages-save", authenticateToken, async (req, res) => {
+router.post("/pages-save", async (req, res) => {
   const { slug, user_type, description, status } = req.body;
 
   // Validate required fields
@@ -68,7 +68,7 @@ router.post("/pages-save", authenticateToken, async (req, res) => {
 });
 
 
-router.put("/pages/:id", authenticateToken, async (req, res) => {
+router.put("/pages/:id", async (req, res) => {
   const { slug, user_type, description, status } = req.body;
   const { id } = req.params;
 
