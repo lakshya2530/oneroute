@@ -5,14 +5,26 @@ const authenticateToken = require("../../middleware/auth.js");
 
 router.get("/pages", async (req, res) => {
   try {
+    const { slug } = req.query;
+
     const conn = await pool.getConnection();
-    const [rows] = await conn.query("SELECT * FROM cms_pages WHERE status = 1");
+
+    let query = "SELECT * FROM cms_pages WHERE status = 1";
+    let params = [];
+
+    if (slug) {
+      query += " AND slug = ?";
+      params.push(slug);
+    }
+
+    const [rows] = await conn.query(query, params);
     conn.release();
 
     return res.json({
       success: true,
       data: rows
     });
+
   } catch (err) {
     console.error(err);
     return res.status(500).json({
@@ -22,6 +34,7 @@ router.get("/pages", async (req, res) => {
     });
   }
 });
+
 
 
 router.post("/pages-save", async (req, res) => {
