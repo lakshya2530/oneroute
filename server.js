@@ -168,6 +168,9 @@ const commissionRoutes = require("./admin/routes/commission");
 const bookingsRoutes = require("./admin/routes/bookings");
 const vehicleAdminRoutes = require("./admin/routes/vehicle");
 const usersAdminRoutes = require("./admin/routes/users");
+const ridesAdminRoutes = require("./admin/routes/rides");
+const dashboardAdminRoutes = require("./admin/routes/dashboard");
+
 
 app.use("/api/users", userRoutes);
 app.use("/api/vehicles", vehicleRoutes);
@@ -181,6 +184,8 @@ app.use("/api/admin/commission", commissionRoutes);
 app.use("/api/admin/bookings", bookingsRoutes);
 app.use("/api/admin/admin-vehicle", vehicleAdminRoutes);
 app.use("/api/admin/admin-users", usersAdminRoutes);
+app.use("/api/admin/admin-rides", ridesAdminRoutes);
+app.use("/api/admin/dashboard", dashboardAdminRoutes);
 
 // SSL Certificate
 const privateKey = fs.readFileSync(path.join(__dirname, "ssl/key.pem"));
