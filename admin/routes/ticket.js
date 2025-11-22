@@ -61,7 +61,11 @@ router.get("/list", async (req, res) => {
     }
   }
 
-  return { ...ticket, user };
+ return { 
+    id: r.id, // This ensures ticket id is always present
+    ...ticket, 
+    user 
+  };
 });
 
 
