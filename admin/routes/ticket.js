@@ -61,8 +61,10 @@ router.get("/list", async (req, res) => {
     }
   }
 
+ ticket.t_id = ticket.id;
+ delete ticket.id;
  return { 
-    id: r.id, // This ensures ticket id is always present
+  //  id: r.id, // This ensures ticket id is always present
     ...ticket, 
     user 
   };
