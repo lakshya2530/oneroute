@@ -10,8 +10,15 @@ router.get("/list", async (req, res) => {
 
     const conn = await pool.getConnection();
 
+    // -----------------------
+    // MAIN QUERY
+    // -----------------------
     let query = `
-      SELECT t.*, u.*
+      SELECT 
+        t.id AS ticket_id,   -- Ticket ID alias
+        t.*, 
+        u.id AS user_id,     -- User ID alias
+        u.*
       FROM tickets t
       LEFT JOIN users u ON t.created_by = u.id
       WHERE 1 = 1
@@ -27,49 +34,46 @@ router.get("/list", async (req, res) => {
     const [rows] = await conn.query(query, params);
     conn.release();
 
-    // FORMAT RESPONSE: User inside "user" object
+    // -----------------------
+    // FORMAT RESPONSE
+    // -----------------------
     const formatted = rows.map(r => {
-  const user = {
-    id: r["u.id"] || r.id,
-    email: r.email,
-    phone: r.phone,
-    username: r.username,
-    first_name: r.first_name,
-    last_name: r.last_name,
+      // USER OBJECT
+      const user = {
+        id: r.user_id,
+        email: r.email,
+        phone: r.phone,
+        username: r.username,
+        first_name: r.first_name,
+        last_name: r.last_name,
+        gender: r.gender ?? null,
+        address: r.address ?? null,
+        city: r.city ?? null,
+        verified: r.verified ?? 1,
+        profile_completed: r.profile_completed ?? 0,
+        fullname: r.fullname ?? null,
+        dob: r.dob ?? null,
+        occupation: r.occupation ?? null,
+        state: r.state ?? null,
+        gov_id_number: r.gov_id_number ?? null,
+        offer_ride: r.offer_ride ?? 0,
+        profile_pic: r.profile_pic ?? null,
+        gov_id_image: r.gov_id_image ?? null,
+        account_active: r.account_active ?? 1
+      };
 
-    // Additional fields you want
-    gender: r.gender ?? null,
-    address: r.address ?? null,
-    city: r.city ?? null,
-    verified: r.verified ?? 1,
-    profile_completed: r.profile_completed ?? 0,
-    fullname: r.fullname ?? null,
-    dob: r.dob ?? null,
-    occupation: r.occupation ?? null,
-    state: r.state ?? null,
-    gov_id_number: r.gov_id_number ?? null,
-    offer_ride: r.offer_ride ?? 0,
-    profile_pic: r.profile_pic ?? null,
-    gov_id_image: r.gov_id_image ?? null,
-    account_active: r.account_active ?? 1
-  };
+      // TICKET OBJECT
+      const ticket = {
+        ...r,
+        t_id: r.ticket_id,
+      };
 
-  const ticket = {};
-  for (const key in r) {
-    if (!Object.keys(user).includes(key)) {
-      ticket[key] = r[key];
-    }
-  }
+      // Remove duplicate ID fields
+      delete ticket.user_id;
+      delete ticket.ticket_id;
 
- ticket.t_id = ticket.id;
- delete ticket.id;
- return { 
-  //  id: r.id, // This ensures ticket id is always present
-    ...ticket, 
-    user 
-  };
-});
-
+      return { ...ticket, user };
+    });
 
     return res.json({
       success: true,
@@ -86,6 +90,7 @@ router.get("/list", async (req, res) => {
     });
   }
 });
+
 
 
 router.put("/status/:id", async (req, res) => {
