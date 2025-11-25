@@ -36,8 +36,17 @@ router.post("/login", async (req, res) => {
 
     const user = rows[0];
 
-    // Validate password
+    // Check if password exists & is string
+    if (!user.password || typeof user.password !== "string") {
+      return res.status(500).json({
+        success: false,
+        message: "User password invalid in database (not a string)"
+      });
+    }
+
+    // Compare password
     const isMatch = await bcrypt.compare(password, user.password);
+
     if (!isMatch) {
       return res.status(401).json({
         success: false,
@@ -45,17 +54,9 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // --- FIXED JWT SIGN ---
-    const token = jwt.sign(
-      { id: user.id, email: user.email },
-      process.env.JWT_SECRET.toString(),  // ensure it is string
-      { expiresIn: "7d" }
-    );
-
-    res.json({
+    return res.json({
       success: true,
       message: "Login successful",
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -72,6 +73,7 @@ router.post("/login", async (req, res) => {
     });
   }
 });
+
 
 
 router.post("/change-password", authenticateToken, async (req, res) => {
