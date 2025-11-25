@@ -15,9 +15,8 @@ router.get("/list", async (req, res) => {
     // -----------------------
     let query = `
       SELECT 
-        t.id AS ticket_id,   -- Ticket ID alias
+        t.id as t_id,   -- Ticket ID alias
         t.*, 
-        u.id AS user_id,     -- User ID alias
         u.*
       FROM tickets t
       LEFT JOIN users u ON t.created_by = u.id
@@ -62,7 +61,7 @@ router.get("/list", async (req, res) => {
         account_active: r.account_active ?? 1
       };
 
-      
+
       // TICKET OBJECT
       const ticket = {
         ...r,
