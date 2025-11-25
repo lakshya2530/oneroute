@@ -3,6 +3,137 @@ const router = express.Router();
 const pool = require("../../db/connection.js");
 const authenticateToken = require("../../middleware/auth.js");
 
+
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+
+router.post("/login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required"
+      });
+    }
+
+    const conn = await pool.getConnection();
+
+    const [rows] = await conn.query(
+      "SELECT * FROM users WHERE email = ? LIMIT 1",
+      [email]
+    );
+
+    conn.release();
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const user = rows[0];
+
+    // Validate password
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid password"
+      });
+    }
+
+    // Generate JWT token
+    // const token = jwt.sign(
+    //   { id: user.id, email: user.email },
+    //   process.env.JWT_SECRET,
+    //   { expiresIn: "7d" }
+    // );
+
+    res.json({
+      success: true,
+      message: "Login successful",
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username
+      }
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: "Login failed",
+      error: err.message
+    });
+  }
+});
+
+router.post("/change-password", authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { old_password, new_password } = req.body;
+
+    if (!old_password || !new_password) {
+      return res.status(400).json({
+        success: false,
+        message: "Both old_password and new_password are required"
+      });
+    }
+
+    const conn = await pool.getConnection();
+
+    const [rows] = await conn.query(
+      "SELECT password FROM users WHERE id = ?",
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      conn.release();
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    const isMatch = await bcrypt.compare(old_password, rows[0].password);
+    if (!isMatch) {
+      conn.release();
+      return res.status(401).json({
+        success: false,
+        message: "Old password is incorrect"
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(new_password, 10);
+
+    await conn.query(
+      "UPDATE users SET password = ? WHERE id = ?",
+      [hashedPassword, userId]
+    );
+
+    conn.release();
+
+    res.json({
+      success: true,
+      message: "Password changed successfully"
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to change password",
+      error: err.message
+    });
+  }
+});
+
+
 // Get all users with optional filters
 router.get("/", async (req, res) => {
   try {

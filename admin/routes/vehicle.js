@@ -386,4 +386,49 @@ router.delete("/:id", authenticateToken, async (req, res) => {
   }
 });
 
+router.put("/vehicle/status/:id", authenticateToken, async (req, res) => {
+  try {
+    const vehicleId = req.params.id;
+    const { status } = req.body; // approved / rejected
+
+    if (!status || !["approved", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Status must be 'approved' or 'rejected'"
+      });
+    }
+
+    const conn = await pool.getConnection();
+
+    const [result] = await conn.query(
+      "UPDATE vehicles SET approval_status = ? WHERE id = ?",
+      [status, vehicleId]
+    );
+
+    conn.release();
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Vehicle not found"
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Vehicle ${status} successfully`,
+      vehicle_id: vehicleId
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update vehicle status",
+      error: err.message
+    });
+  }
+});
+
+
 module.exports = router;
