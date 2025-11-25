@@ -45,12 +45,12 @@ router.post("/login", async (req, res) => {
       });
     }
 
-    // Generate JWT token
-    // const token = jwt.sign(
-    //   { id: user.id, email: user.email },
-    //   process.env.JWT_SECRET,
-    //   { expiresIn: "7d" }
-    // );
+    // --- FIXED JWT SIGN ---
+    const token = jwt.sign(
+      { id: user.id, email: user.email },
+      process.env.JWT_SECRET.toString(),  // ensure it is string
+      { expiresIn: "7d" }
+    );
 
     res.json({
       success: true,
@@ -72,6 +72,7 @@ router.post("/login", async (req, res) => {
     });
   }
 });
+
 
 router.post("/change-password", authenticateToken, async (req, res) => {
   try {
