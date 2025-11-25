@@ -65,7 +65,7 @@ router.get("/list", async (req, res) => {
       // TICKET OBJECT
       const ticket = {
         ...r,
-        t_id: r.ticket_id,
+        t_id: r.t_id,
       };
 
       // Remove duplicate ID fields
