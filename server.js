@@ -138,7 +138,7 @@ const HTTPS_PORT = process.env.HTTPS_PORT || 3001;
 
 // Enable CORS
 app.use(cors({
-  origin: ["http://localhost:5173", "https://82.25.105.208"],
+  origin: ["http://localhost:5173", "https://82.25.105.208","https://green-octopus-403216.hostingersite.com"],
   credentials: true
 }));
 
