@@ -81,7 +81,7 @@ router.get("/", async (req, res) => {
     const [rows] = await conn.query(query, params);
     conn.release();
 
-    // Format Response - SAME EXACT PATTERN as your /vehicles API
+    // Format Response - Fixed backslash issue
     const result = rows.map((r) => {
       const user = {
         id: r.user_id,
@@ -97,8 +97,12 @@ router.get("/", async (req, res) => {
         state: r.state,
         gov_id_number: r.gov_id_number,
         offer_ride: r.offer_ride,
-        profile_pic: r.profile_pic ? `${baseUrl}/${r.profile_pic}` : null,
-        gov_id_image: r.gov_id_image ? `${baseUrl}/${r.gov_id_image}` : null,
+        profile_pic: r.profile_pic
+          ? `${baseUrl}/${r.profile_pic.replace(/\\/g, "/")}`
+          : null,
+        gov_id_image: r.gov_id_image
+          ? `${baseUrl}/${r.gov_id_image.replace(/\\/g, "/")}`
+          : null,
         created_at: r.user_created_at,
         updated_at: r.user_updated_at,
         account_active: r.account_active,
@@ -111,7 +115,9 @@ router.get("/", async (req, res) => {
         vehicle_model: r.vehicle_model,
         vehicle_year: r.vehicle_year,
         license_plate: r.license_plate,
-        vehicle_image: r.vehicle_image ? `${baseUrl}/${r.vehicle_image}` : null,
+        vehicle_image: r.vehicle_image
+          ? `${baseUrl}/${r.vehicle_image.replace(/\\/g, "/")}`
+          : null,
         created_at: r.created_at,
       };
 
@@ -132,6 +138,7 @@ router.get("/", async (req, res) => {
     });
   }
 });
+
 
 
 // Get vehicle by ID
