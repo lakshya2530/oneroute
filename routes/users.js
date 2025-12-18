@@ -4,8 +4,8 @@ const pool = require("../db/connection.js");
 const jwt = require("jsonwebtoken");
 const upload = require("../middleware/upload.js");
 const authenticateToken = require("../middleware/auth.js");
-const sendPushNotification = require("../utils/pushNotification");
-const admin = require("../config/firebase");
+const sendPushNotification = require("../utils/pushNotification.js");
+const admin = require("../config/firebase.js");
 const STATIC_OTP = "1234";
 
 // --- Send OTP ---
