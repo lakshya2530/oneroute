@@ -1,0 +1,13 @@
+{
+  "type": "service_account",
+  "project_id": "oneroute-279b4",
+  "private_key_id": "19c0c45d91b3245d850f417fa69e1a89918b1ace",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDrCqhDhGWyLLx7\npMJDvQf0qgeLkAW17nUbbFlzKB9HdZNPPPovBL7qS9HkiyFc08uQkHnUyX+LQCK9\nn00nqzpRnILb+Zb0m5NR5qWrjYHEuMA5I8L5XyDt42aADUc0QvzUbZCxosWtGv+a\neC7t3g1CUq0WbX2ziSkh3xJOV2NfSqsOCbxYazlbviUtPxhKJSPYp8jIWImLZpIu\nLU6z2pwMt0BT+xL7Q7dk3mNNmKLDj71VXBFDmEvyPF9s2QaLM81uh+wIbzaB58pc\npdeYPOYcmsyDARYUN796msGiRGHKcVzBjUZTIq2bBkG1g+QC+pGpI0L8GGoVRfJb\nqdWKVVePAgMBAAECggEAPmKmxLz4jTFImfziPz6GRQ94Tzfb/C0d0jiRCXrFyp7P\nicGimiZFUkTroiC3qz7gEi/21l7hRqGwVupYfUX6hbzoEuENi0Fb+eohYQZ/QirT\ngpcWYkA4qkuoYiakFqANIYkvVabhlw/KdkKeGi7NECSHoqNPMP8f9siRwE97pcfW\nn3QDBAASWkhHbLXuLnAdWgau2zcRX4h5RPciai/Kh9lMch3gYUbQoJ0hfO6FT87t\n3YEirAv1mddyy7jMrTKX3uXhSFMJtlMnP38H8GGcgNcAol9gRrqvcynP3ERwtrhk\ndvvohDPI9FKfGGXRTfEqRKD2cJHpSUAHQCYm8TD4QQKBgQD6GPuZX3Rv9rkJgGl/\nWLO8qzUAH4KtQBGD3rFd6a5aNF7xZBncseNRZGqJt3jmxfj3p3Pri4ix1aU76M8P\neJMzEq8jcDWQXT+KX1LAlMFl8hr9taY0tIhjOFHeYrbb9yeNMItnCJSbZ3UDAnZe\n543/w0ieohnv362grG58jHJroQKBgQDwlrXyOuTx1NRXOEG9FRU4Oof6VJjdejy3\nk9aL+XSFbiaIE5fEflb3YilSfA9sqWtrzAhByAi/xmwgbDfgO3KvcNn5FW5/KuYv\nUgul1bRxIil8g721lusBVx61crvSgzoa7Q5M9bFrMVnyjdXKohde77YCvNtZrsTj\nnUk5a0N1LwKBgETlePopZ6QobZUGgQmJ4AnLiFA+XftoOOsBAA+E/njvEHCjSNSZ\nVKvpY8gIeQ/p3coroS10RPXoixpT6iay6qoZLZIvqTHZ3lU6KUvQLu7soS7fSagf\nS6s5qqP+wa0bCxREGUMLBBVDjOKFXSKL23xnyauZsFd6YRRwLAe3kRXBAoGAdD1c\nyxwJYY4iycE0gdad2fztldUpxlg43blf/2EXGyCNHVHaEeW4vu1+aYvnJ+jzLbH2\ni1HKaF3GACRJGt2eG4W6ys3ABVEExfguCIGoHMEUqkQ8dG/mO0+MVr6IYL1mZXwD\nXMuYXOILQ1Wj5bNK92N53PjCQiJenlpv9n4MqaECgYEAkYSKBeWPgijmO4fePtct\nods7suv+pkxhoVQRDPzKZwlugeAGW8S6tF8aTLuTJ3rM3jAv5zoajfWgWltnBCJb\nWi92H5UVupyOUamSZ4pys28rIaLLGKz+fmlsyKWgYciVzcMFFT+kwow+N5YGh+gH\n+Z9Ysrj51bul9hZTxfKzZ2c=\n-----END PRIVATE KEY-----\n",
+  "client_email": "firebase-adminsdk-fbsvc@oneroute-279b4.iam.gserviceaccount.com",
+  "client_id": "115272774404101193257",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40oneroute-279b4.iam.gserviceaccount.com",
+  "universe_domain": "googleapis.com"
+}
