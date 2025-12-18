@@ -4,7 +4,8 @@ const pool = require("../db/connection.js");
 const jwt = require("jsonwebtoken");
 const upload = require("../middleware/upload.js");
 const authenticateToken = require("../middleware/auth.js");
-
+const sendPushNotification = require("../utils/pushNotification");
+const admin = require("../config/firebase");
 const STATIC_OTP = "1234";
 
 // --- Send OTP ---
@@ -36,6 +37,32 @@ router.post("/send-otp", async (req, res) => {
   }
 });
 
+router.post("/test-push", async (req, res) => {
+  try {
+    const { token, title, body } = req.body;
+
+    if (!token || !title || !body) {
+      return res.status(400).json({ error: "token, title, and body are required" });
+    }
+
+    const message = {
+      notification: { title, body },
+      token: token, // single device token
+    };
+
+    const response = await admin.messaging().send(message);
+    console.log("✅ Notification sent successfully:", response);
+
+    res.json({
+      success: true,
+      message: "Notification sent successfully",
+      response,
+    });
+  } catch (error) {
+    console.error("❌ Notification error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 // --- Verify OTP & determine next step ---
 router.post("/verify-otp", async (req, res) => {
   const { phone, otp } = req.body;
