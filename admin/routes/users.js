@@ -3,139 +3,8 @@ const router = express.Router();
 const pool = require("../../db/connection.js");
 const authenticateToken = require("../../middleware/auth.js");
 
-
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-
-router.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required"
-      });
-    }
-
-    const conn = await pool.getConnection();
-
-    const [rows] = await conn.query(
-      "SELECT * FROM users WHERE email = ? LIMIT 1",
-      [email]
-    );
-
-    conn.release();
-
-    if (rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
-    }
-
-    const user = rows[0];
-
-    // Check if password exists & is string
-    if (!user.password || typeof user.password !== "string") {
-      return res.status(500).json({
-        success: false,
-        message: "User password invalid in database (not a string)"
-      });
-    }
-
-    // Compare password
-    const isMatch = await bcrypt.compare(password, user.password);
-
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid password"
-      });
-    }
-
-    return res.json({
-      success: true,
-      message: "Login successful",
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username
-      }
-    });
-
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({
-      success: false,
-      message: "Login failed",
-      error: err.message
-    });
-  }
-});
-
-
-
-router.post("/change-password", authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { old_password, new_password } = req.body;
-
-    if (!old_password || !new_password) {
-      return res.status(400).json({
-        success: false,
-        message: "Both old_password and new_password are required"
-      });
-    }
-
-    const conn = await pool.getConnection();
-
-    const [rows] = await conn.query(
-      "SELECT password FROM users WHERE id = ?",
-      [userId]
-    );
-
-    if (rows.length === 0) {
-      conn.release();
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
-    }
-
-    const isMatch = await bcrypt.compare(old_password, rows[0].password);
-    if (!isMatch) {
-      conn.release();
-      return res.status(401).json({
-        success: false,
-        message: "Old password is incorrect"
-      });
-    }
-
-    const hashedPassword = await bcrypt.hash(new_password, 10);
-
-    await conn.query(
-      "UPDATE users SET password = ? WHERE id = ?",
-      [hashedPassword, userId]
-    );
-
-    conn.release();
-
-    res.json({
-      success: true,
-      message: "Password changed successfully"
-    });
-
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to change password",
-      error: err.message
-    });
-  }
-});
-
 
 // Get all users with optional filters
 router.get("/", async (req, res) => {
@@ -151,8 +20,11 @@ router.get("/", async (req, res) => {
       state,
       gov_id_number,
       offer_ride,
-      account_active
+      account_active,
     } = req.query;
+
+    const baseUrl =
+      process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
 
     const conn = await pool.getConnection();
 
@@ -237,18 +109,27 @@ router.get("/", async (req, res) => {
     const [rows] = await conn.query(query, params);
     conn.release();
 
+    const formattedRows = rows.map((r) => ({
+      ...r,
+      profile_pic: r.profile_pic
+        ? `${baseUrl}/${r.profile_pic.replace(/\\/g, "/")}`
+        : null,
+      gov_id_image: r.gov_id_image
+        ? `${baseUrl}/${r.gov_id_image.replace(/\\/g, "/")}`
+        : null,
+    }));
+
     return res.json({
       success: true,
-      data: rows,
-      count: rows.length
+      data: formattedRows,
+      count: formattedRows.length,
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch users",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -286,21 +167,20 @@ router.get("/:id", async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
     return res.json({
       success: true,
-      data: rows[0]
+      data: rows[0],
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch user",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -309,35 +189,35 @@ router.get("/:id", async (req, res) => {
 router.put("/status/:id", async (req, res) => {
   try {
     const userId = req.params.id;
-    const {
-      verified,
-      profile_completed,
-      account_active,
-      offer_ride
-    } = req.body;
+    const { verified, profile_completed, account_active, offer_ride } =
+      req.body;
 
     // Check if at least one status field is provided
-    if (verified === undefined && profile_completed === undefined && 
-        account_active === undefined && offer_ride === undefined) {
+    if (
+      verified === undefined &&
+      profile_completed === undefined &&
+      account_active === undefined &&
+      offer_ride === undefined
+    ) {
       return res.status(400).json({
         success: false,
-        message: "At least one status field is required: verified, profile_completed, account_active, or offer_ride"
+        message:
+          "At least one status field is required: verified, profile_completed, account_active, or offer_ride",
       });
     }
 
     const conn = await pool.getConnection();
 
     // Check if user exists
-    const [checkRows] = await conn.query(
-      "SELECT id FROM users WHERE id = ?",
-      [userId]
-    );
+    const [checkRows] = await conn.query("SELECT id FROM users WHERE id = ?", [
+      userId,
+    ]);
 
     if (checkRows.length === 0) {
       conn.release();
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
@@ -382,16 +262,15 @@ router.put("/status/:id", async (req, res) => {
         verified,
         profile_completed,
         account_active,
-        offer_ride
-      }
+        offer_ride,
+      },
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to update user status",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -411,31 +290,41 @@ router.put("/:id", async (req, res) => {
       state,
       gov_id_number,
       profile_pic,
-      gov_id_image
+      gov_id_image,
     } = req.body;
 
     // Check if at least one field is provided
-    if (!fullname && !phone && !gender && !address && !city && !dob && 
-        !occupation && !state && !gov_id_number && !profile_pic && !gov_id_image) {
+    if (
+      !fullname &&
+      !phone &&
+      !gender &&
+      !address &&
+      !city &&
+      !dob &&
+      !occupation &&
+      !state &&
+      !gov_id_number &&
+      !profile_pic &&
+      !gov_id_image
+    ) {
       return res.status(400).json({
         success: false,
-        message: "At least one field is required to update"
+        message: "At least one field is required to update",
       });
     }
 
     const conn = await pool.getConnection();
 
     // Check if user exists
-    const [checkRows] = await conn.query(
-      "SELECT id FROM users WHERE id = ?",
-      [userId]
-    );
+    const [checkRows] = await conn.query("SELECT id FROM users WHERE id = ?", [
+      userId,
+    ]);
 
     if (checkRows.length === 0) {
       conn.release();
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
@@ -501,7 +390,9 @@ router.put("/:id", async (req, res) => {
     updateParams.push(userId);
 
     const [result] = await conn.query(
-      `UPDATE users SET ${updateFields.join(", ")}, updated_at = NOW() WHERE id = ?`,
+      `UPDATE users SET ${updateFields.join(
+        ", "
+      )}, updated_at = NOW() WHERE id = ?`,
       updateParams
     );
 
@@ -522,16 +413,15 @@ router.put("/:id", async (req, res) => {
         state,
         gov_id_number,
         profile_pic,
-        gov_id_image
-      }
+        gov_id_image,
+      },
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to update user profile",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -543,37 +433,34 @@ router.delete("/:id", async (req, res) => {
     const conn = await pool.getConnection();
 
     // Check if user exists
-    const [checkRows] = await conn.query(
-      "SELECT id FROM users WHERE id = ?",
-      [userId]
-    );
+    const [checkRows] = await conn.query("SELECT id FROM users WHERE id = ?", [
+      userId,
+    ]);
 
     if (checkRows.length === 0) {
       conn.release();
       return res.status(404).json({
         success: false,
-        message: "User not found"
+        message: "User not found",
       });
     }
 
-    const [result] = await conn.query(
-      "DELETE FROM users WHERE id = ?",
-      [userId]
-    );
+    const [result] = await conn.query("DELETE FROM users WHERE id = ?", [
+      userId,
+    ]);
 
     conn.release();
 
     return res.json({
       success: true,
-      message: "User deleted successfully"
+      message: "User deleted successfully",
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to delete user",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -600,15 +487,14 @@ router.get("/stats/summary", async (req, res) => {
 
     return res.json({
       success: true,
-      data: rows[0]
+      data: rows[0],
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch user statistics",
-      error: err.message
+      error: err.message,
     });
   }
 });

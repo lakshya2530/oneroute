@@ -16,7 +16,7 @@ router.get("/", async (req, res) => {
       min_amount,
       max_amount,
       page = 1,
-      limit = 10
+      limit = 10,
     } = req.query;
 
     const conn = await pool.getConnection();
@@ -108,7 +108,7 @@ router.get("/", async (req, res) => {
     conn.release();
 
     // Format Response
-    const result = rows.map(r => {
+    const result = rows.map((r) => {
       const user = {
         id: r.user_id,
         username: r.username,
@@ -129,7 +129,7 @@ router.get("/", async (req, res) => {
         gov_id_image: r.gov_id_image,
         created_at: r.created_at,
         updated_at: r.updated_at,
-        account_active: r.account_active
+        account_active: r.account_active,
       };
 
       const ride = {
@@ -147,7 +147,7 @@ router.get("/", async (req, res) => {
         amount_per_seat: r.amount_per_seat,
         pickup_note: r.pickup_note,
         ride_status: r.ride_status,
-        created_at: r.created_at
+        created_at: r.created_at,
       };
 
       return { ...ride, user };
@@ -162,16 +162,15 @@ router.get("/", async (req, res) => {
         total_items: total,
         items_per_page: parseInt(limit),
         has_next: page < totalPages,
-        has_prev: page > 1
-      }
+        has_prev: page > 1,
+      },
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch rides",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -220,7 +219,7 @@ router.get("/:id", async (req, res) => {
     if (rows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: "Ride not found"
+        message: "Ride not found",
       });
     }
 
@@ -245,17 +244,19 @@ router.get("/:id", async (req, res) => {
       gov_id_image: r.gov_id_image,
       created_at: r.user_created_at,
       updated_at: r.user_updated_at,
-      account_active: r.account_active
+      account_active: r.account_active,
     };
 
-    const vehicle = r.vehicle_id ? {
-      id: r.vehicle_id,
-      vehicle_make: r.vehicle_make,
-      vehicle_model: r.vehicle_model,
-      vehicle_year: r.vehicle_year,
-      license_plate: r.license_plate,
-      vehicle_image: r.vehicle_image
-    } : null;
+    const vehicle = r.vehicle_id
+      ? {
+          id: r.vehicle_id,
+          vehicle_make: r.vehicle_make,
+          vehicle_model: r.vehicle_model,
+          vehicle_year: r.vehicle_year,
+          license_plate: r.license_plate,
+          vehicle_image: r.vehicle_image,
+        }
+      : null;
 
     const ride = {
       id: r.id,
@@ -272,20 +273,19 @@ router.get("/:id", async (req, res) => {
       amount_per_seat: r.amount_per_seat,
       pickup_note: r.pickup_note,
       ride_status: r.ride_status,
-      created_at: r.created_at
+      created_at: r.created_at,
     };
 
     return res.json({
       success: true,
-      data: { ...ride, user, vehicle }
+      data: { ...ride, user, vehicle },
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch ride",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -305,22 +305,30 @@ router.post("/", authenticateToken, async (req, res) => {
       ride_time,
       seats_available,
       amount_per_seat,
-      pickup_note
+      pickup_note,
     } = req.body;
 
     // Required fields validation
     const requiredFields = [
-      'user_id', 'pickup_location', 'pickup_lat', 'pickup_lng', 
-      'drop_location', 'drop_lat', 'drop_lng', 'ride_date', 
-      'ride_time', 'seats_available', 'amount_per_seat'
+      "user_id",
+      "pickup_location",
+      "pickup_lat",
+      "pickup_lng",
+      "drop_location",
+      "drop_lat",
+      "drop_lng",
+      "ride_date",
+      "ride_time",
+      "seats_available",
+      "amount_per_seat",
     ];
-    
-    const missingFields = requiredFields.filter(field => !req.body[field]);
-    
+
+    const missingFields = requiredFields.filter((field) => !req.body[field]);
+
     if (missingFields.length > 0) {
       return res.status(400).json({
         success: false,
-        message: `Missing required fields: ${missingFields.join(', ')}`
+        message: `Missing required fields: ${missingFields.join(", ")}`,
       });
     }
 
@@ -333,9 +341,18 @@ router.post("/", authenticateToken, async (req, res) => {
         seats_available, amount_per_seat, pickup_note, ride_status, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', NOW())`,
       [
-        user_id, pickup_location, pickup_lat, pickup_lng,
-        drop_location, drop_lat, drop_lng, ride_date, ride_time,
-        seats_available, amount_per_seat, pickup_note || null
+        user_id,
+        pickup_location,
+        pickup_lat,
+        pickup_lng,
+        drop_location,
+        drop_lat,
+        drop_lng,
+        ride_date,
+        ride_time,
+        seats_available,
+        amount_per_seat,
+        pickup_note || null,
       ]
     );
 
@@ -358,16 +375,15 @@ router.post("/", authenticateToken, async (req, res) => {
         seats_available,
         amount_per_seat,
         pickup_note,
-        ride_status: 'open'
-      }
+        ride_status: "open",
+      },
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to create ride",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -381,32 +397,39 @@ router.patch("/:id/status", async (req, res) => {
     if (!ride_status) {
       return res.status(400).json({
         success: false,
-        message: "ride_status is required"
+        message: "ride_status is required",
       });
     }
 
     // Validate status value
-    const validStatuses = ['open', 'full', 'in_progress', 'completed', 'cancelled'];
+    const validStatuses = [
+      "open",
+      "full",
+      "in_progress",
+      "completed",
+      "cancelled",
+    ];
     if (!validStatuses.includes(ride_status)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid ride_status. Must be one of: ${validStatuses.join(', ')}`
+        message: `Invalid ride_status. Must be one of: ${validStatuses.join(
+          ", "
+        )}`,
       });
     }
 
     const conn = await pool.getConnection();
 
     // Check if ride exists
-    const [checkRows] = await conn.query(
-      "SELECT id FROM rides WHERE id = ?",
-      [rideId]
-    );
+    const [checkRows] = await conn.query("SELECT id FROM rides WHERE id = ?", [
+      rideId,
+    ]);
 
     if (checkRows.length === 0) {
       conn.release();
       return res.status(404).json({
         success: false,
-        message: "Ride not found"
+        message: "Ride not found",
       });
     }
 
@@ -423,16 +446,15 @@ router.patch("/:id/status", async (req, res) => {
       message: "Ride status updated successfully",
       data: {
         id: rideId,
-        ride_status
-      }
+        ride_status,
+      },
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to update ride status",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -452,22 +474,21 @@ router.put("/:id", authenticateToken, async (req, res) => {
       ride_time,
       seats_available,
       amount_per_seat,
-      pickup_note
+      pickup_note,
     } = req.body;
 
     const conn = await pool.getConnection();
 
     // Check if ride exists
-    const [checkRows] = await conn.query(
-      "SELECT id FROM rides WHERE id = ?",
-      [rideId]
-    );
+    const [checkRows] = await conn.query("SELECT id FROM rides WHERE id = ?", [
+      rideId,
+    ]);
 
     if (checkRows.length === 0) {
       conn.release();
       return res.status(404).json({
         success: false,
-        message: "Ride not found"
+        message: "Ride not found",
       });
     }
 
@@ -524,7 +545,7 @@ router.put("/:id", authenticateToken, async (req, res) => {
       conn.release();
       return res.status(400).json({
         success: false,
-        message: "No fields to update"
+        message: "No fields to update",
       });
     }
 
@@ -542,16 +563,15 @@ router.put("/:id", authenticateToken, async (req, res) => {
       message: "Ride updated successfully",
       data: {
         id: rideId,
-        ...req.body
-      }
+        ...req.body,
+      },
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to update ride",
-      error: err.message
+      error: err.message,
     });
   }
 });
@@ -563,42 +583,37 @@ router.delete("/:id", authenticateToken, async (req, res) => {
     const conn = await pool.getConnection();
 
     // Check if ride exists
-    const [checkRows] = await conn.query(
-      "SELECT id FROM rides WHERE id = ?",
-      [rideId]
-    );
+    const [checkRows] = await conn.query("SELECT id FROM rides WHERE id = ?", [
+      rideId,
+    ]);
 
     if (checkRows.length === 0) {
       conn.release();
       return res.status(404).json({
         success: false,
-        message: "Ride not found"
+        message: "Ride not found",
       });
     }
 
-    const [result] = await conn.query(
-      "DELETE FROM rides WHERE id = ?",
-      [rideId]
-    );
+    const [result] = await conn.query("DELETE FROM rides WHERE id = ?", [
+      rideId,
+    ]);
 
     conn.release();
 
     return res.json({
       success: true,
-      message: "Ride deleted successfully"
+      message: "Ride deleted successfully",
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to delete ride",
-      error: err.message
+      error: err.message,
     });
   }
 });
-
-
 
 
 module.exports = router;

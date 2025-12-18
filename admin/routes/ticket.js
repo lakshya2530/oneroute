@@ -1,8 +1,6 @@
 const express = require("express");
 const router = express.Router();
 const pool = require("../../db/connection.js");
-const authenticateToken = require("../../middleware/auth.js");
-
 
 router.get("/list", async (req, res) => {
   try {
@@ -10,34 +8,42 @@ router.get("/list", async (req, res) => {
 
     const conn = await pool.getConnection();
 
-    // -----------------------
-    // MAIN QUERY
-    // -----------------------
+    // Join tickets + users + replies
     let query = `
-      SELECT 
-        t.id as t_id,   -- Ticket ID alias
-        t.*, 
-        u.*
+      SELECT
+        t.id AS t_id,
+        t.*,
+        u.*,
+        tr.id AS reply_id,
+        tr.ticket_id AS reply_ticket_id,
+        tr.message AS reply_message,
+        tr.created_at AS reply_created_at
       FROM tickets t
       LEFT JOIN users u ON t.created_by = u.id
+      LEFT JOIN ticket_replies tr ON tr.ticket_id = t.id
       WHERE 1 = 1
     `;
 
-    let params = [];
+    const params = [];
 
     if (status) {
       query += " AND t.status = ?";
       params.push(status);
     }
 
+    // Order by ticket, then reply time
+    query += " ORDER BY t.id DESC, tr.created_at ASC";
+
     const [rows] = await conn.query(query, params);
     conn.release();
 
-    // -----------------------
-    // FORMAT RESPONSE
-    // -----------------------
-    const formatted = rows.map(r => {
-      // USER OBJECT
+    // Group rows by ticket id
+    const ticketMap = new Map();
+
+    for (const r of rows) {
+      const ticketId = r.t_id;
+
+      // Build user object
       const user = {
         id: r.user_id,
         email: r.email,
@@ -58,29 +64,49 @@ router.get("/list", async (req, res) => {
         offer_ride: r.offer_ride ?? 0,
         profile_pic: r.profile_pic ?? null,
         gov_id_image: r.gov_id_image ?? null,
-        account_active: r.account_active ?? 1
+        account_active: r.account_active ?? 1,
       };
 
+      // If ticket not yet in map, initialize it
+      if (!ticketMap.has(ticketId)) {
+        const ticket = {
+          ...r,
+          t_id: r.t_id,
+          user,
+          replies: [],
+        };
 
-      // TICKET OBJECT
-      const ticket = {
-        ...r,
-        t_id: r.t_id,
-      };
+        // remove duplicated keys that belong to user or reply
+        delete ticket.user_id;
+        delete ticket.ticket_id;
+        delete ticket.reply_id;
+        delete ticket.reply_ticket_id;
+        delete ticket.reply_message;
+        delete ticket.reply_created_at;
 
-      // Remove duplicate ID fields
-      delete ticket.user_id;
-      delete ticket.ticket_id;
+        ticketMap.set(ticketId, ticket);
+      }
 
-      return { ...ticket, user };
-    });
+      // Add reply if exists
+      if (r.reply_id) {
+        const ticket = ticketMap.get(ticketId);
+
+        ticket.replies.push({
+          id: r.reply_id,
+          ticket_id: r.reply_ticket_id,
+          message: r.reply_message,
+          created_at: r.reply_created_at,
+        });
+      }
+    }
+
+    const formatted = Array.from(ticketMap.values());
 
     return res.json({
       success: true,
       total: formatted.length,
       data: formatted,
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
@@ -90,8 +116,6 @@ router.get("/list", async (req, res) => {
     });
   }
 });
-
-
 
 router.put("/status/:id", async (req, res) => {
   try {
@@ -165,7 +189,7 @@ router.put("/status/:id", async (req, res) => {
       offer_ride: r.offer_ride ?? 0,
       profile_pic: r.profile_pic ?? null,
       gov_id_image: r.gov_id_image ?? null,
-      account_active: r.account_active ?? 1
+      account_active: r.account_active ?? 1,
     };
 
     // Remove user fields from ticket data
@@ -179,9 +203,8 @@ router.put("/status/:id", async (req, res) => {
     return res.json({
       success: true,
       message: "Ticket status updated successfully",
-      data: { ...ticket, user }
+      data: { ...ticket, user },
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
@@ -192,6 +215,63 @@ router.put("/status/:id", async (req, res) => {
   }
 });
 
+router.post("/:id/replies", async (req, res) => {
+  try {
+    const ticketId = req.params.id;
+    const { message } = req.body;
 
+    // 2) Validate body
+    if (!message || typeof message !== "string" || !message.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Message is required",
+      });
+    }
+
+    const conn = await pool.getConnection();
+
+    // 3) Ensure ticket exists
+    const [ticketRows] = await conn.query(
+      "SELECT id FROM tickets WHERE id = ?",
+      [ticketId]
+    );
+    if (ticketRows.length === 0) {
+      conn.release();
+      return res.status(404).json({
+        success: false,
+        message: "Ticket not found",
+      });
+    }
+
+    // 4) Insert reply
+    const [insertResult] = await conn.query(
+      `
+      INSERT INTO ticket_replies (ticket_id, message, created_at)
+      VALUES (?, ?, NOW())
+      `,
+      [ticketId, message.trim()]
+    );
+
+    conn.release();
+
+    return res.status(201).json({
+      success: true,
+      message: "Reply added successfully",
+      data: {
+        id: insertResult.insertId,
+        ticket_id: Number(ticketId),
+        message: message.trim(),
+        created_at: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to add reply",
+      error: err.message,
+    });
+  }
+});
 
 module.exports = router;

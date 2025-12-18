@@ -7,7 +7,7 @@ router.get("/", async (req, res) => {
     const conn = await pool.getConnection();
 
     // Get today's date for filtering
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Date().toISOString().split("T")[0];
 
     // 1. Active Bookings (bookings with status 'pending' or 'confirmed')
     const [activeBookingsResult] = await conn.query(
@@ -49,25 +49,25 @@ router.get("/", async (req, res) => {
 
     // Format weekly revenue data for chart
     const weeklyRevenue = [];
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
     // Create last 7 days array
     const last7Days = [];
     for (let i = 6; i >= 0; i--) {
       const date = new Date();
       date.setDate(date.getDate() - i);
-      last7Days.push(date.toISOString().split('T')[0]);
+      last7Days.push(date.toISOString().split("T")[0]);
     }
 
     // Fill in revenue data for each day
-    last7Days.forEach(date => {
-      const dayData = weeklyRevenueResult.find(item => 
-        item.date.toISOString().split('T')[0] === date
+    last7Days.forEach((date) => {
+      const dayData = weeklyRevenueResult.find(
+        (item) => item.date.toISOString().split("T")[0] === date
       );
       const dayName = days[new Date(date).getDay()];
       weeklyRevenue.push({
         day: dayName,
-        revenue: dayData ? parseFloat(dayData.revenue) : 0
+        revenue: dayData ? parseFloat(dayData.revenue) : 0,
       });
     });
 
@@ -81,13 +81,16 @@ router.get("/", async (req, res) => {
     );
 
     // Calculate total bookings
-    const totalBookings = bookingsBreakdownResult.reduce((total, item) => total + item.count, 0);
+    const totalBookings = bookingsBreakdownResult.reduce(
+      (total, item) => total + item.count,
+      0
+    );
 
     // Format bookings breakdown
-    const bookingsBreakdown = bookingsBreakdownResult.map(item => ({
+    const bookingsBreakdown = bookingsBreakdownResult.map((item) => ({
       status: item.status,
       count: item.count,
-      percentage: ((item.count / totalBookings) * 100).toFixed(1)
+      percentage: ((item.count / totalBookings) * 100).toFixed(1),
     }));
 
     // 7. Recent Activities (latest 5 bookings with user info)
@@ -105,13 +108,13 @@ router.get("/", async (req, res) => {
        LIMIT 5`
     );
 
-    const recentActivities = recentActivitiesResult.map(activity => ({
+    const recentActivities = recentActivitiesResult.map((activity) => ({
       id: activity.id,
-      customer_name: activity.fullname || 'Unknown',
+      customer_name: activity.fullname || "Unknown",
       customer_phone: activity.phone,
       status: activity.status,
       amount: activity.amount,
-      created_at: activity.created_at
+      created_at: activity.created_at,
     }));
 
     // 8. Vehicle Statistics
@@ -146,40 +149,120 @@ router.get("/", async (req, res) => {
           active_bookings: activeBookings,
           available_vehicles: availableVehicles,
           pending_verifications: pendingVerifications,
-          revenue_today: parseFloat(revenueToday)
+          revenue_today: parseFloat(revenueToday),
         },
         revenue_trend: {
-          weekly: weeklyRevenue
+          weekly: weeklyRevenue,
         },
         bookings_breakdown: {
           total: totalBookings,
-          by_status: bookingsBreakdown
+          by_status: bookingsBreakdown,
         },
         statistics: {
           vehicles: {
             total: vehicleStats.total_vehicles,
             unique_makes: vehicleStats.unique_makes,
-            unique_years: vehicleStats.unique_years
+            unique_years: vehicleStats.unique_years,
           },
           users: {
             total: userStats.total_users,
             verified: userStats.verified_users,
-            ride_offering: userStats.ride_offering_users
-          }
+            ride_offering: userStats.ride_offering_users,
+          },
         },
         recent_activities: recentActivities,
-        last_updated: new Date().toISOString()
-      }
+        last_updated: new Date().toISOString(),
+      },
     };
 
     return res.json(dashboardData);
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to fetch dashboard data",
-      error: err.message
+      error: err.message,
+    });
+  }
+});
+
+router.get("/revenue-trend", async (req, res) => {
+  try {
+    const conn = await pool.getConnection();
+
+    // 1) Get year & month from query (default: current month)
+    const now = new Date();
+    const year = parseInt(req.query.year, 10) || now.getFullYear();
+    const month = parseInt(req.query.month, 10) || now.getMonth() + 1; // 1-12
+
+    // First and last day of selected month
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 0); // last day of month
+
+    const monthStartStr = monthStart.toISOString().split("T")[0];
+    const monthEndStr = monthEnd.toISOString().split("T")[0];
+
+    // 2) Fetch daily revenue for this month
+    const [rows] = await conn.query(
+      `
+        SELECT 
+          DATE(created_at) AS date,
+          COALESCE(SUM(estimated_amount), 0) AS revenue
+        FROM ride_requests
+        WHERE DATE(created_at) BETWEEN ? AND ?
+          AND status = 'completed'
+        GROUP BY DATE(created_at)
+        ORDER BY DATE(created_at)
+      `,
+      [monthStartStr, monthEndStr]
+    );
+
+    conn.release();
+
+    // 3) Bucket days into weeks-of-month
+    const getWeekOfMonth = (d) => {
+      const day = d.getDate(); // 1..31
+      return Math.floor((day - 1) / 7) + 1; // 1..5(6)
+    };
+
+    const weeksMap = new Map();
+
+    rows.forEach((row) => {
+      const d = new Date(row.date);
+      const weekIndex = getWeekOfMonth(d);
+      const key = `week_${weekIndex}`;
+      const revenueNum = parseFloat(row.revenue) || 0;
+
+      if (!weeksMap.has(key)) {
+        weeksMap.set(key, {
+          week: weekIndex,
+          label: `Week ${weekIndex}`,
+          revenue: 0,
+        });
+      }
+
+      const current = weeksMap.get(key);
+      current.revenue += revenueNum;
+    });
+
+    const weekly = Array.from(weeksMap.values()).sort(
+      (a, b) => a.week - b.week
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        year,
+        month,
+        weekly,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch revenue trend",
+      error: err.message,
     });
   }
 });

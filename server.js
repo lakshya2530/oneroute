@@ -162,6 +162,7 @@ const ridesRoutes = require("./routes/rides");
 const chatRoutes = require("./routes/chat");
 
 // Admin routes
+const adminAuthRoutes = require("./admin/routes/auth");
 const adminCmsRoutes = require("./admin/routes/cms");
 const adminTicketRoutes = require("./admin/routes/ticket");
 const commissionRoutes = require("./admin/routes/commission");
@@ -178,6 +179,7 @@ app.use("/api/accounts", accountRoutes);
 app.use("/api/rides", ridesRoutes);
 app.use("/api/chat", chatRoutes);
 
+app.use("/api/admin/auth", adminAuthRoutes);
 app.use("/api/admin/cms", adminCmsRoutes);
 app.use("/api/admin/ticket", adminTicketRoutes);
 app.use("/api/admin/commission", commissionRoutes);
