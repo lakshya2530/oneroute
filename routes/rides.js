@@ -22,6 +22,7 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
     seats_available,
     amount_per_seat,
     pickup_note,
+    vehicle_id,
   } = req.body;
 
   if (
@@ -34,7 +35,8 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
     !ride_date ||
     !ride_time ||
     !seats_available ||
-    !amount_per_seat
+    !amount_per_seat ||
+    !vehicle_id
   ) {
     return res.status(400).json({ msg: "Missing required fields" });
   }
@@ -49,8 +51,8 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
     await conn.query(
       `INSERT INTO rides 
       (user_id, pickup_location, pickup_lat, pickup_lng, drop_location, drop_lat, drop_lng, 
-       ride_date, ride_time, seats_available, amount_per_seat, pickup_note, ride_status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       ride_date, ride_time, seats_available, amount_per_seat, pickup_note, ride_status, vehicle_id) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         user.id,
         pickup_location,

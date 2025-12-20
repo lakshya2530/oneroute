@@ -18,6 +18,7 @@
     "express": "^5.1.0",
     "express-http-to-https": "^1.1.4",
     "express-sslify": "^1.2.0",
+    "firebase-admin": "^13.6.0",
     "fs": "^0.0.1-security",
     "http": "^0.0.1-security",
     "https": "^1.0.0",

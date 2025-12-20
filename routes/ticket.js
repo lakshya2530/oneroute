@@ -4,7 +4,7 @@ const pool = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
 
 // POST /api/user/tickets  (user creates ticket)
-router.post("/tickets", authenticateToken, async (req, res) => {
+router.post("/raise", authenticateToken, async (req, res) => {
   const { phone } = req.user;
   const { title, description } = req.body;
 
@@ -18,7 +18,9 @@ router.post("/tickets", authenticateToken, async (req, res) => {
   const conn = await pool.getConnection();
   try {
     // 1) Get current user
-    const user = await getCurrentUser(conn, phone);
+    const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+      phone,
+    ]);
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -62,21 +64,17 @@ router.post("/tickets", authenticateToken, async (req, res) => {
   }
 });
 
-
 // GET /api/user/tickets  (tickets created by this user)
-router.get("/tickets", authenticateToken, async (req, res) => {
+router.get("/", authenticateToken, async (req, res) => {
   const { phone } = req.user;
 
   const conn = await pool.getConnection();
   try {
     // 1) Get current user
-    const user = await getCurrentUser(conn, phone);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found",
-      });
-    }
+    const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+      phone,
+    ]);
+    if (!user) return res.status(404).json({ msg: "User not found" });
 
     // 2) Get tickets + replies for this user
     const [rows] = await conn.query(
@@ -147,3 +145,51 @@ router.get("/tickets", authenticateToken, async (req, res) => {
     conn.release();
   }
 });
+
+// DELETE /api/user/tickets/:id  (delete specific ticket)
+router.delete("/:id", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { phone } = req.user;
+  console.log
+
+  const conn = await pool.getConnection();
+  try {
+    // 1) Verify ticket belongs to user and exists
+    const [[ticket]] = await conn.query(
+      "SELECT id FROM tickets WHERE id = ? AND created_by = (SELECT id FROM users WHERE phone = ?)",
+      [id, phone]
+    );
+
+    if (!ticket) {
+      return res.status(404).json({
+        success: false,
+        message: "Ticket not found or access denied"
+      });
+    }
+
+    // 2) Delete ticket replies first (foreign key constraint)
+    await conn.query("DELETE FROM ticket_replies WHERE ticket_id = ?", [id]);
+
+    // 3) Delete the ticket
+    await conn.query("DELETE FROM tickets WHERE id = ?", [id]);
+
+    return res.json({
+      success: true,
+      message: "Ticket deleted successfully",
+      deleted_id: id
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to delete ticket",
+      error: err.message
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+
+module.exports = router;
