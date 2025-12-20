@@ -2,8 +2,8 @@ const mysql = require("mysql2");
 
 const pool = mysql.createPool({
   host: "localhost",
-  user: "root", // your MySQL username
-  password: "", // your MySQL password
+  user: "oneroute", // your MySQL username
+  password: "Oneroute@123", // your MySQL password
   database: "oneroute", // database name
   connectionLimit: 10,
 });
