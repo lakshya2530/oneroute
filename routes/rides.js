@@ -67,6 +67,7 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
         amount_per_seat,
         pickup_note || null,
         "open",
+         vehicle_id
       ]
     );
 
