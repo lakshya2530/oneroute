@@ -42,7 +42,9 @@ router.post("/test-push", async (req, res) => {
     const { token, title, body } = req.body;
 
     if (!token || !title || !body) {
-      return res.status(400).json({ error: "token, title, and body are required" });
+      return res
+        .status(400)
+        .json({ error: "token, title, and body are required" });
     }
 
     const message = {
@@ -262,5 +264,123 @@ router.delete("/delete-account", authenticateToken, async (req, res) => {
     conn.release();
   }
 });
+
+//   (create new contact)
+router.post("/emergency-contacts", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const contactData = req.body; // Accept all body fields as-is
+
+  const conn = await pool.getConnection();
+  try {
+    // Verify user exists
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    // Insert contact (dynamic fields from body)
+    const [result] = await conn.query("INSERT INTO emergency_contacts SET ?", {
+      ...contactData,
+      user_id: user.id,
+    });
+
+    const [newContact] = await conn.query(
+      "SELECT * FROM emergency_contacts WHERE id = ?",
+      [result.insertId]
+    );
+
+    res.json({
+      success: true,
+      message: "Emergency contact added",
+      data: newContact[0],
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// GET /api/user/emergency-contacts  (get all user contacts)
+router.get("/emergency-contacts", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    const [contacts] = await conn.query(
+      "SELECT * FROM emergency_contacts WHERE user_id = ? ORDER BY created_at DESC",
+      [user.id]
+    );
+
+    res.json({
+      success: true,
+      total: contacts.length,
+      data: contacts,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// DELETE /api/user/emergency-contacts/:id  (remove specific contact)
+router.delete(
+  "/emergency-contacts/:id",
+  authenticateToken,
+  async (req, res) => {
+    const { id } = req.params;
+    const { phone } = req.user;
+
+    const conn = await pool.getConnection();
+    try {
+      const [[user]] = await conn.query(
+        "SELECT id FROM users WHERE phone = ?",
+        [phone]
+      );
+      if (!user) {
+        return res
+          .status(404)
+          .json({ success: false, message: "User not found" });
+      }
+
+      const [result] = await conn.query(
+        "DELETE FROM emergency_contacts WHERE id = ? AND user_id = ?",
+        [id, user.id]
+      );
+
+      if (result.affectedRows === 0) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Contact not found" });
+      }
+
+      res.json({
+        success: true,
+        message: "Emergency contact deleted",
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, message: err.message });
+    } finally {
+      conn.release();
+    }
+  }
+);
 
 module.exports = router;
