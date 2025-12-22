@@ -4,6 +4,7 @@ const router = express.Router();
 const pool = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
+const sendPushNotification = require("../utils/pushNotification.js");
 
 const DEFAULT_OTP = "1234";
 
@@ -67,7 +68,7 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
         amount_per_seat,
         pickup_note || null,
         "open",
-         vehicle_id
+        vehicle_id,
       ]
     );
 
@@ -566,6 +567,12 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
 
     const estimated_amount = no_of_seats * ride.amount_per_seat;
 
+    // ride owner details
+    const [[owner]] = await conn.query(
+      "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+      [ride.user_id]
+    );
+
     // Insert ride request with both passenger_id and ride owner_id
     await conn.query(
       `INSERT INTO ride_requests 
@@ -574,13 +581,33 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       [
         ride_id,
         passenger_id,
-        ride.user_id, // <-- ride owner ID stored here
+        ride.user_id, // <-- ride owner ID
         pickup_stop,
         no_of_seats,
         estimated_amount,
         message || null,
       ]
     );
+
+    if (owner?.fcm_token) {
+      await sendPushNotification(
+        owner.fcm_token,
+        "New Ride Request!",
+        `${
+          user.fullname || "Passenger"
+        } requested ${no_of_seats} seat(s) from ${pickup_stop}`,
+        {
+          type: "ride_request",
+          ride_id: ride_id,
+          request_id: result.insertId,
+          passenger_id: passenger_id,
+          no_of_seats: no_of_seats.toString(),
+          estimated_amount: estimated_amount.toString(),
+          action: "view_requests",
+        },
+        owner.id
+      );
+    }
 
     res.json({ msg: "Ride request sent successfully" });
   } catch (err) {
@@ -666,8 +693,6 @@ router.post(
       if (!owner) return res.status(404).json({ msg: "Owner not found" });
       const owner_id = owner.id;
 
-      console.log(owner);
-
       const [[request]] = await conn.query(
         `
   SELECT rr.*, 
@@ -723,6 +748,28 @@ router.post(
 
         await conn.commit();
 
+        // Push Notification Code
+        const [[passenger]] = await conn.query(
+          "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+          [request.passenger_id]
+        );
+
+        if (passenger[0]?.fcm_token) {
+          await sendPushNotification(
+            passenger[0].fcm_token,
+            "🎉 Ride Confirmed!",
+            `${owner.fullname || "Owner"} accepted your ride request!`,
+            {
+              type: "ride_accepted",
+              ride_id: request.ride_id,
+              pickup_otp: pickupOTP,
+              drop_otp: dropOTP,
+              action: "view_ride",
+            },
+            passenger[0].id
+          );
+        }
+
         console.log(
           `✅ Ride ${request.ride_id}: Pickup OTP=${pickupOTP}, Drop OTP=${dropOTP}`
         );
@@ -740,6 +787,27 @@ router.post(
           "UPDATE ride_requests SET status='rejected' WHERE id=?",
           [requestId]
         );
+
+        // Push notification
+        const [[passenger]] = await conn.query(
+          "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+          [request.passenger_id]
+        );
+
+        if (passenger[0]?.fcm_token) {
+          await sendPushNotification(
+            passenger[0].fcm_token,
+            "❌ Ride Request Cancelled",
+            "Your ride request has been cancelled by the owner.",
+            {
+              type: "ride_rejected",
+              ride_id: request.ride_id,
+              action: "find_rides",
+            },
+            passenger[0].id
+          );
+        }
+
         res.json({ msg: "Ride rejected and OTPs removed" });
       } else {
         res.status(400).json({ msg: "Invalid action" });
@@ -767,8 +835,6 @@ router.post("/:rideId/verify-pickup", authenticateToken, async (req, res) => {
     ]);
     if (!user) return res.status(404).json({ msg: "User not found" });
 
-    console.log(user.id, rideId);
-
     const [[otpRecord]] = await conn.query(
       "SELECT * FROM ride_otps WHERE ride_id=? AND owner_id=? AND user_id=?",
       // "SELECT * FROM ride_otps WHERE ride_id=? ",
@@ -788,6 +854,27 @@ router.post("/:rideId/verify-pickup", authenticateToken, async (req, res) => {
       rideId,
     ]);
     await conn.commit();
+
+    // Push notification
+    const [[owner]] = await conn.query(
+      "SELECT u.id, u.fullname, u.fcm_token FROM users u JOIN rides r ON r.user_id = u.id WHERE r.id = ?",
+      [rideId]
+    );
+
+    if (owner[0]?.fcm_token) {
+      await sendPushNotification(
+        owner[0].fcm_token,
+        "Passenger Onboard",
+        `${user.fullname || "Passenger"} verified pickup OTP. Ride started!`,
+        {
+          type: "ride_started",
+          ride_id: rideId,
+          status: "in_route",
+          action: "track_ride",
+        },
+        owner[0].id
+      );
+    }
 
     res.json({ msg: "Pickup OTP verified, ride started." });
   } catch (err) {
@@ -822,6 +909,34 @@ router.post("/:rideId/reached", authenticateToken, async (req, res) => {
       "UPDATE rides SET ride_status='reached_destination' WHERE id=?",
       [rideId]
     );
+
+    // Push Notifications
+    const [passengers] = await conn.query(
+      `
+  SELECT DISTINCT u.id, u.fullname, u.fcm_token 
+  FROM users u 
+  JOIN ride_requests rr ON rr.passenger_id = u.id 
+  JOIN ride_otps ro ON ro.user_id = u.id 
+  WHERE ro.ride_id = ? AND ro.drop_verified = FALSE
+`,
+      [rideId]
+    );
+
+    const passengerTokens = passengers.map((p) => p.fcm_token).filter(Boolean);
+    if (passengerTokens.length) {
+      await sendPushNotification(
+        passengerTokens,
+        "📍 Driver Reached Destination",
+        "Your driver has reached the drop location. Use drop OTP to complete ride.",
+        {
+          type: "driver_reached",
+          ride_id: rideId,
+          drop_otp: DEFAULT_OTP.toString(),
+          action: "verify_drop",
+        },
+        passengers.map((p) => p.id) // Multiple userIds
+      );
+    }
 
     console.log(`📍 Ride ${rideId}: Drop OTP = ${DEFAULT_OTP}`);
     res.json({
@@ -873,6 +988,26 @@ router.post("/:rideId/verify-drop", authenticateToken, async (req, res) => {
     );
     await conn.query("DELETE FROM ride_otps WHERE id=?", [otpRecord.id]);
     await conn.commit();
+
+    // Push Notifications
+    const [[owner]] = await conn.query(
+      "SELECT u.id, u.fullname, u.fcm_token FROM users u JOIN rides r ON r.user_id = u.id WHERE r.id = ?",
+      [rideId]
+    );
+
+    if (owner[0]?.fcm_token) {
+      await sendPushNotification(
+        owner[0].fcm_token,
+        "Ride Completed!",
+        `${user.fullname || "Passenger"} completed the ride successfully!`,
+        {
+          type: "ride_completed",
+          ride_id: rideId,
+          action: "rate_ride",
+        },
+        owner[0].id
+      );
+    }
 
     res.json({ msg: "Drop OTP verified, ride completed successfully!" });
   } catch (err) {

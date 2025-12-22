@@ -1,4 +1,5 @@
 const admin = require("../config/firebase");
+const { pool } = require("../db/connection");
 
 /**
  * Send push notification using Firebase Cloud Messaging v1
@@ -7,8 +8,23 @@ const admin = require("../config/firebase");
  * @param {string} body - Notification message
  * @param {object} data - Extra payload data (optional)
  */
-async function sendPushNotification(token, title, body, data = {}) {
+async function sendPushNotification(token, title, body, data = {}, userId) {
   try {
+    // Store into DB
+    const conn = pool.getConnection();
+
+    const userIds = Array.isArray(userId) ? userId : [userId];
+
+    for (const uid of userIds) {
+      await conn.query(
+        "INSERT INTO notifications (user_id, title, body, data, type) VALUES (?, ?, ?, ?, ?)",
+        [uid, title, body, JSON.stringify(data), data.type || "general"]
+      );
+    }
+
+    conn.release();
+
+    // Send Push Notification
     const message = {
       notification: { title, body },
       data: data,

@@ -65,6 +65,26 @@ router.post("/test-push", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// FCM Token API
+router.post("/fcm-token", authenticateToken, async (req, res) => {
+  const { fcm_token } = req.body;
+  const { phone } = req.user;
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.query("UPDATE users SET fcm_token = ? WHERE phone = ?", [
+      fcm_token,
+      phone,
+    ]);
+    res.json({ success: true, msg: "Token saved" });
+  } catch (err) {
+    res.status(500).json({ msg: "Failed to save token", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
 // --- Verify OTP & determine next step ---
 router.post("/verify-otp", async (req, res) => {
   const { phone, otp } = req.body;
@@ -265,7 +285,7 @@ router.delete("/delete-account", authenticateToken, async (req, res) => {
   }
 });
 
-//   (create new contact)
+// create new contact
 router.post("/emergency-contacts", authenticateToken, async (req, res) => {
   const { phone } = req.user;
   const contactData = req.body; // Accept all body fields as-is
@@ -306,7 +326,7 @@ router.post("/emergency-contacts", authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/user/emergency-contacts  (get all user contacts)
+// get all user contacts
 router.get("/emergency-contacts", authenticateToken, async (req, res) => {
   const { phone } = req.user;
 
@@ -339,7 +359,7 @@ router.get("/emergency-contacts", authenticateToken, async (req, res) => {
   }
 });
 
-// DELETE /api/user/emergency-contacts/:id  (remove specific contact)
+// remove notification contact
 router.delete(
   "/emergency-contacts/:id",
   authenticateToken,
@@ -382,5 +402,108 @@ router.delete(
     }
   }
 );
+
+// Users Notification
+router.get("/notifications", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const { page = 1, limit = 20, read = "false" } = req.query;
+  const offset = (page - 1) * limit;
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+
+    if (!user?.id) return res.status(404).json({ msg: "User not found" });
+
+    const isRead = read === "true";
+
+    const [notifications] = await conn.query(
+      `SELECT id, title, body, data, type, is_read, created_at
+       FROM notifications
+       WHERE user_id = ? AND is_read = ?
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`,
+      [user.id, isRead, parseInt(limit), parseInt(offset)]
+    );
+
+    const formattedNotifications = notifications.map((n) => ({
+      ...n,
+      data: n.data ? JSON.parse(n.data) : null,
+    }));
+
+    const [[countResult]] = await conn.query(
+      "SELECT COUNT(*) as total FROM notifications WHERE user_id = ? AND is_read = ?",
+      [user.id, isRead]
+    );
+
+    const total = countResult.total;
+
+    res.json({
+      success: true,
+      notifications: formattedNotifications,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      msg: "Failed to fetch notifications",
+      error: err.message,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+// Mark Notification as Read
+router.put("/notifications/read-all", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const { notification_ids } = req.body; // Optional: array of notification IDs
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+    if (!user?.id) return res.status(404).json({ msg: "User not found" });
+
+    if (notification_ids && Array.isArray(notification_ids)) {
+      // Mark notification notifications as read
+      const placeholders = notification_ids.map(() => "?").join(",");
+      await conn.query(
+        `UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND id IN (${placeholders})`,
+        [user.id, ...notification_ids]
+      );
+      res.json({
+        success: true,
+        msg: `${notification_ids.length} notifications marked as read`,
+      });
+    } else {
+      // Mark ALL unread as read
+      const [result] = await conn.query(
+        "UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND is_read = FALSE",
+        [user.id]
+      );
+      res.json({
+        success: true,
+        msg: "All notifications marked as read",
+        markedCount: result.affectedRows,
+      });
+    }
+  } catch (err) {
+    console.error(err);
+    res
+      .status(500)
+      .json({ msg: "Failed to update notifications", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
 
 module.exports = router;
