@@ -1,0 +1,22 @@
+[0;1;32m●[0m mariadb.service - MariaDB 10.11 database server
+     Loaded: loaded (]8;;file://srv1017908.hstgr.cloud/usr/lib/systemd/system/mariadb.service\/usr/lib/systemd/system/mariadb.service]8;;\; [0;1;32menabled[0m; preset: [0;1;38:5:185mdisabled[0m)
+     Active: [0;1;32mactive (running)[0m since Thu 2025-11-20 07:33:08 UTC; 11s ago
+ Invocation: c42cca7e3401416c88ebc8fcb1eef0c1
+       Docs: ]8;;man:mariadbd(8)\man:mariadbd(8)]8;;\
+             ]8;;https://mariadb.com/kb/en/library/systemd/\https://mariadb.com/kb/en/library/systemd/]8;;\
+    Process: 361624 ExecStartPre=/usr/libexec/mariadb-check-socket (code=exited, status=0/SUCCESS)
+    Process: 361647 ExecStartPre=/usr/libexec/mariadb-prepare-db-dir mariadb.service (code=exited, status=0/SUCCESS)
+    Process: 361696 ExecStartPost=/usr/libexec/mariadb-check-upgrade (code=exited, status=0/SUCCESS)
+   Main PID: 361682 (mariadbd)
+     Status: "[0;1;36mTaking your SQL requests now...[0m"
+      Tasks: 12[0;38;5;245m (limit: 50425)[0m
+     Memory: 199.3M (peak: 201.3M)
+        CPU: 1.049s
+     CGroup: /system.slice/mariadb.service
+             └─[0;38;5;245m361682 /usr/libexec/mariadbd --basedir=/usr[0m
+
+Nov 20 07:33:07 srv1017908.hstgr.cloud systemd[1]: Starting mariadb.service - MariaDB 10.11 database server...
+Nov 20 07:33:07 srv1017908.hstgr.cloud mariadb-prepare-db-dir[361647]: Database MariaDB is probably initialized in /var/lib/mysql already, nothing is done.
+Nov 20 07:33:07 srv1017908.hstgr.cloud mariadb-prepare-db-dir[361647]: If this is not the case, make sure the /var/lib/mysql is empty before running mariadb-prepare-db-dir.
+Nov 20 07:33:07 srv1017908.hstgr.cloud (mariadbd)[361682]: [0;1;38:5:185m[0;1;39m[0;1;38:5:185mmariadb.service: Referenced but unset environment variable evaluates to an empty string: MYSQLD_OPTS, _WSREP_NEW_CLUSTER[0m
+Nov 20 07:33:08 srv1017908.hstgr.cloud systemd[1]: Started mariadb.service - MariaDB 10.11 database server.
