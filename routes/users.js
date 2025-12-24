@@ -506,4 +506,183 @@ router.put("/notifications/read-all", authenticateToken, async (req, res) => {
   }
 });
 
+// Raise SOS
+router.post("/sos/raise", authenticateToken, async (req, res) => {
+  const { latitude, longitude, bookingId, phone } = req.body;
+  const { phone: senderPhone } = req.user;
+
+  if (!latitude || !longitude || !bookingId || !phone) {
+    return res.status(400).json({
+      success: false,
+      message: "latitude, longitude, bookingId and phone are required",
+    });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    //Sender
+    const [[sender]] = await conn.query(
+      "SELECT id, phone, fullname FROM users WHERE phone = ? AND account_active = 1",
+      [senderPhone]
+    );
+
+    if (!sender) {
+      return res.status(404).json({
+        success: false,
+        message: "Sender not found",
+      });
+    }
+
+    //Receiver (Emergency Contact)
+    const [[receiver]] = await conn.query(
+      "SELECT id, phone, fcm_token FROM users WHERE phone = ? AND account_active = 1",
+      [phone]
+    );
+
+    if (!receiver) {
+      return res.status(404).json({
+        success: false,
+        message: "Emergency contact not found",
+      });
+    }
+
+    // Prevent self SOS
+    if (sender.id === receiver.id) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot send SOS to yourself",
+      });
+    }
+
+    //Prevent duplicate SOS
+    const [[existing]] = await conn.query(
+      `SELECT id FROM sos_requests
+       WHERE sender_id = ? AND booking_id = ? AND status = 'active'`,
+      [sender.id, bookingId]
+    );
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: "SOS already active for this booking",
+      });
+    }
+
+    //Save SOS
+    await conn.query(
+      `INSERT INTO sos_requests
+       (sender_id, receiver_id, sender_phone, receiver_phone, booking_id, latitude, longitude)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        sender.id,
+        receiver.id,
+        sender.phone,
+        receiver.phone,
+        bookingId,
+        latitude,
+        longitude,
+      ]
+    );
+
+    // PUSH NOTIFICATION
+    if (receiver.fcm_token) {
+      await sendPushNotification(
+        receiver.fcm_token,
+        "🚨 Emergency SOS Alert",
+        `${sender.fullname || "Your contact"} needs immediate help`,
+        {
+          type: "sos_alert",
+          booking_id: bookingId,
+          latitude: latitude,
+          longitude: longitude,
+          action: "view_sos",
+        },
+        receiver.id
+      );
+    }
+
+    res.json({
+      success: true,
+      message: "SOS sent successfully to emergency contact",
+    });
+  } catch (err) {
+    console.error("SOS Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+// Get SOS Recevied
+router.get("/sos/received", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const conn = await pool.getConnection();
+
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    const [rows] = await conn.query(
+      `SELECT s.*, u.fullname, u.profile_pic
+       FROM sos_requests s
+       JOIN users u ON u.id = s.sender_id
+       WHERE s.receiver_id = ?
+       ORDER BY s.created_at DESC`,
+      [user.id]
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  } finally {
+    conn.release();
+  }
+});
+
+// SOS resolved
+router.put("/sos/:id/resolve", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { phone } = req.user;
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+
+    const [result] = await conn.query(
+      `UPDATE sos_requests
+       SET status = 'resolved'
+       WHERE id = ? AND receiver_id = ?`,
+      [id, user.id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized or SOS not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "SOS resolved successfully",
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  } finally {
+    conn.release();
+  }
+});
+
 module.exports = router;

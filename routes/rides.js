@@ -541,7 +541,6 @@ router.get("/my-all-ride-requests", authenticateToken, async (req, res) => {
 router.post("/ride-requests", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
   const { ride_id, pickup_stop, no_of_seats, message } = req.body;
-
   if (!ride_id || !pickup_stop || !no_of_seats) {
     return res.status(400).json({ msg: "Missing required fields" });
   }
