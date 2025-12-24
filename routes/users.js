@@ -422,7 +422,7 @@ router.get("/notifications", authenticateToken, async (req, res) => {
     const [notifications] = await conn.query(
       `SELECT id, title, body, data, type, is_read, created_at
        FROM notifications
-       WHERE user_id = ? AND is_read = ?
+       WHERE user_id = ?
        ORDER BY created_at DESC
        LIMIT ? OFFSET ?`,
       [user.id, isRead, parseInt(limit), parseInt(offset)]
