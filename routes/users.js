@@ -42,7 +42,9 @@ router.post("/test-push", async (req, res) => {
     const { token, title, body } = req.body;
 
     if (!token || !title || !body) {
-      return res.status(400).json({ error: "token, title, and body are required" });
+      return res
+        .status(400)
+        .json({ error: "token, title, and body are required" });
     }
 
     const message = {
@@ -63,6 +65,26 @@ router.post("/test-push", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// FCM Token API
+router.post("/fcm-token", authenticateToken, async (req, res) => {
+  const { fcm_token } = req.body;
+  const { phone } = req.user;
+  const conn = await pool.getConnection();
+
+  try {
+    await conn.query("UPDATE users SET fcm_token = ? WHERE phone = ?", [
+      fcm_token,
+      phone,
+    ]);
+    res.json({ success: true, msg: "Token saved" });
+  } catch (err) {
+    res.status(500).json({ msg: "Failed to save token", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
 // --- Verify OTP & determine next step ---
 router.post("/verify-otp", async (req, res) => {
   const { phone, otp } = req.body;
@@ -258,6 +280,411 @@ router.delete("/delete-account", authenticateToken, async (req, res) => {
     res
       .status(500)
       .json({ msg: "Failed to delete user account", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// create new contact
+router.post("/emergency-contacts", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const contactData = req.body; // Accept all body fields as-is
+
+  const conn = await pool.getConnection();
+  try {
+    // Verify user exists
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    // Insert contact (dynamic fields from body)
+    const [result] = await conn.query("INSERT INTO emergency_contacts SET ?", {
+      ...contactData,
+      user_id: user.id,
+    });
+
+    const [newContact] = await conn.query(
+      "SELECT * FROM emergency_contacts WHERE id = ?",
+      [result.insertId]
+    );
+
+    res.json({
+      success: true,
+      message: "Emergency contact added",
+      data: newContact[0],
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// get all user contacts
+router.get("/emergency-contacts", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    const [contacts] = await conn.query(
+      "SELECT * FROM emergency_contacts WHERE user_id = ? ORDER BY created_at DESC",
+      [user.id]
+    );
+
+    res.json({
+      success: true,
+      total: contacts.length,
+      data: contacts,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// remove notification contact
+router.delete(
+  "/emergency-contacts/:id",
+  authenticateToken,
+  async (req, res) => {
+    const { id } = req.params;
+    const { phone } = req.user;
+
+    const conn = await pool.getConnection();
+    try {
+      const [[user]] = await conn.query(
+        "SELECT id FROM users WHERE phone = ?",
+        [phone]
+      );
+      if (!user) {
+        return res
+          .status(404)
+          .json({ success: false, message: "User not found" });
+      }
+
+      const [result] = await conn.query(
+        "DELETE FROM emergency_contacts WHERE id = ? AND user_id = ?",
+        [id, user.id]
+      );
+
+      if (result.affectedRows === 0) {
+        return res
+          .status(404)
+          .json({ success: false, message: "Contact not found" });
+      }
+
+      res.json({
+        success: true,
+        message: "Emergency contact deleted",
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ success: false, message: err.message });
+    } finally {
+      conn.release();
+    }
+  }
+);
+
+// Users Notification
+router.get("/notifications", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const { page = 1, limit = 20 } = req.query;
+  const offset = (page - 1) * limit;
+
+  const conn = await pool.getConnection();
+  try {
+    // Get logged-in user
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+
+    if (!user?.id) {
+      return res.status(404).json({ success: false, msg: "User not found" });
+    }
+
+    // Fetch ALL notifications (read + unread)
+    const [notifications] = await conn.query(
+      `SELECT id, title, body, data, type, is_read, created_at
+       FROM notifications
+       WHERE user_id = ?
+       ORDER BY created_at DESC
+       LIMIT ? OFFSET ?`,
+      [user.id, parseInt(limit), parseInt(offset)]
+    );
+
+    const formattedNotifications = notifications.map((n) => ({
+      ...n,
+      data: n.data ? JSON.parse(n.data) : null,
+    }));
+
+    // Total count (without is_read filter)
+    const [[countResult]] = await conn.query(
+      "SELECT COUNT(*) AS total FROM notifications WHERE user_id = ?",
+      [user.id]
+    );
+
+    const total = countResult.total;
+
+    res.json({
+      success: true,
+      notifications: formattedNotifications,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      msg: "Failed to fetch notifications",
+      error: err.message,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+
+// Mark Notification as Read
+router.put("/notifications/read-all", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const { notification_ids } = req.body; // Optional: array of notification IDs
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+    if (!user?.id) return res.status(404).json({ msg: "User not found" });
+
+    if (notification_ids && Array.isArray(notification_ids)) {
+      // Mark notification notifications as read
+      const placeholders = notification_ids.map(() => "?").join(",");
+      await conn.query(
+        `UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND id IN (${placeholders})`,
+        [user.id, ...notification_ids]
+      );
+      res.json({
+        success: true,
+        msg: `${notification_ids.length} notifications marked as read`,
+      });
+    } else {
+      // Mark ALL unread as read
+      const [result] = await conn.query(
+        "UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND is_read = FALSE",
+        [user.id]
+      );
+      res.json({
+        success: true,
+        msg: "All notifications marked as read",
+        markedCount: result.affectedRows,
+      });
+    }
+  } catch (err) {
+    console.error(err);
+    res
+      .status(500)
+      .json({ msg: "Failed to update notifications", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// Raise SOS
+router.post("/sos/raise", authenticateToken, async (req, res) => {
+  const { latitude, longitude, bookingId, phone } = req.body;
+  const { phone: senderPhone } = req.user;
+
+  if (!latitude || !longitude || !bookingId || !phone) {
+    return res.status(400).json({
+      success: false,
+      message: "latitude, longitude, bookingId and phone are required",
+    });
+  }
+
+  const conn = await pool.getConnection();
+  try {
+    //Sender
+    const [[sender]] = await conn.query(
+      "SELECT id, phone, fullname FROM users WHERE phone = ? AND account_active = 1",
+      [senderPhone]
+    );
+
+    if (!sender) {
+      return res.status(404).json({
+        success: false,
+        message: "Sender not found",
+      });
+    }
+
+    //Receiver (Emergency Contact)
+    const [[receiver]] = await conn.query(
+      "SELECT id, phone, fcm_token FROM users WHERE phone = ? AND account_active = 1",
+      [phone]
+    );
+
+    if (!receiver) {
+      return res.status(404).json({
+        success: false,
+        message: "Emergency contact not found",
+      });
+    }
+
+    // Prevent self SOS
+    if (sender.id === receiver.id) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot send SOS to yourself",
+      });
+    }
+
+    //Prevent duplicate SOS
+    const [[existing]] = await conn.query(
+      `SELECT id FROM sos_requests
+       WHERE sender_id = ? AND booking_id = ? AND status = 'active'`,
+      [sender.id, bookingId]
+    );
+
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: "SOS already active for this booking",
+      });
+    }
+
+    //Save SOS
+    await conn.query(
+      `INSERT INTO sos_requests
+       (sender_id, receiver_id, sender_phone, receiver_phone, booking_id, latitude, longitude)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        sender.id,
+        receiver.id,
+        sender.phone,
+        receiver.phone,
+        bookingId,
+        latitude,
+        longitude,
+      ]
+    );
+
+    // PUSH NOTIFICATION
+    if (receiver.fcm_token) {
+      await sendPushNotification(
+        receiver.fcm_token,
+        "🚨 Emergency SOS Alert",
+        `${sender.fullname || "Your contact"} needs immediate help`,
+        {
+          type: "sos_alert",
+          booking_id: bookingId,
+          latitude: latitude,
+          longitude: longitude,
+          action: "view_sos",
+        },
+        receiver.id
+      );
+    }
+
+    res.json({
+      success: true,
+      message: "SOS sent successfully to emergency contact",
+    });
+  } catch (err) {
+    console.error("SOS Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+// Get SOS Recevied
+router.get("/sos/received", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const conn = await pool.getConnection();
+
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+
+    if (!user) {
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+    }
+
+    const [rows] = await conn.query(
+      `SELECT s.*, u.fullname, u.profile_pic
+       FROM sos_requests s
+       JOIN users u ON u.id = s.sender_id
+       WHERE s.receiver_id = ?
+       ORDER BY s.created_at DESC`,
+      [user.id]
+    );
+
+    res.json({ success: true, data: rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  } finally {
+    conn.release();
+  }
+});
+
+// SOS resolved
+router.put("/sos/:id/resolve", authenticateToken, async (req, res) => {
+  const { id } = req.params;
+  const { phone } = req.user;
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      phone,
+    ]);
+
+    const [result] = await conn.query(
+      `UPDATE sos_requests
+       SET status = 'resolved'
+       WHERE id = ? AND receiver_id = ?`,
+      [id, user.id]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(403).json({
+        success: false,
+        message: "Not authorized or SOS not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "SOS resolved successfully",
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
   } finally {
     conn.release();
   }

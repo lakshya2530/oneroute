@@ -1,0 +1,13 @@
+[0;1;32m●[0m mariadb.service - MariaDB 10.11 database server
+     Loaded: loaded (]8;;file://srv1017908.hstgr.cloud/usr/lib/systemd/system/mariadb.service\/usr/lib/systemd/system/mariadb.service]8;;\; [0;1;32menabled[0m; preset: [0;1;38:5:185mdisabled[0m)
+     Active: [0;1;32mactive (running)[0m since Fri 2025-09-19 12:17:52 UTC; 2 months 0 days ago
+ Invocation: 056023941e894682bd6ecd15ddb3fd9d
+       Docs: ]8;;man:mariadbd(8)\man:mariadbd(8)]8;;\
+             ]8;;https://mariadb.com/kb/en/library/systemd/\https://mariadb.com/kb/en/library/systemd/]8;;\
+   Main PID: 13508 (mariadbd)
+     Status: "[0;1;36mTaking your SQL requests now...[0m"
+      Tasks: 9[0;38;5;245m (limit: 50425)[0m
+     Memory: 232.1M (peak: 233.1M)
+        CPU: 12min 29.604s
+     CGroup: /system.slice/mariadb.service
+             └─[0;38;5;245m13508 /usr/libexec/mariadbd --basedir=/usr[0m

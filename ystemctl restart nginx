@@ -1,0 +1,19 @@
+[0;1;32m●[0m php-fpm.service - The PHP FastCGI Process Manager
+     Loaded: loaded (]8;;file://srv1017908.hstgr.cloud/usr/lib/systemd/system/php-fpm.service\/usr/lib/systemd/system/php-fpm.service]8;;\; [0;1;32menabled[0m; preset: [0;1;38:5:185mdisabled[0m)
+     Active: [0;1;32mactive (running)[0m since Thu 2025-11-27 12:56:24 UTC; 56ms ago
+ Invocation: 6422fdbe51054c9b95261b7c5b522026
+   Main PID: 405664 (php-fpm)
+     Status: "[0;1;36mReady to handle connections[0m"
+      Tasks: 6[0;38;5;245m (limit: 50425)[0m
+     Memory: 14.9M (peak: 15.1M)
+        CPU: 286ms
+     CGroup: /system.slice/php-fpm.service
+             ├─[0;38;5;245m405664 "php-fpm: master process (/etc/php-fpm.conf)"[0m
+             ├─[0;38;5;245m405666 "php-fpm: pool www"[0m
+             ├─[0;38;5;245m405667 "php-fpm: pool www"[0m
+             ├─[0;38;5;245m405668 "php-fpm: pool www"[0m
+             ├─[0;38;5;245m405669 "php-fpm: pool www"[0m
+             └─[0;38;5;245m405670 "php-fpm: pool www"[0m
+
+Nov 27 12:56:24 srv1017908.hstgr.cloud systemd[1]: Starting php-fpm.service - The PHP FastCGI Process Manager...
+Nov 27 12:56:24 srv1017908.hstgr.cloud systemd[1]: Started php-fpm.service - The PHP FastCGI Process Manager.
