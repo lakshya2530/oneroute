@@ -406,26 +406,28 @@ router.delete(
 // Users Notification
 router.get("/notifications", authenticateToken, async (req, res) => {
   const { phone } = req.user;
-  const { page = 1, limit = 20, read = "false" } = req.query;
+  const { page = 1, limit = 20 } = req.query;
   const offset = (page - 1) * limit;
 
   const conn = await pool.getConnection();
   try {
+    // Get logged-in user
     const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
       phone,
     ]);
 
-    if (!user?.id) return res.status(404).json({ msg: "User not found" });
+    if (!user?.id) {
+      return res.status(404).json({ success: false, msg: "User not found" });
+    }
 
-    const isRead = read === "true";
-
+    // Fetch ALL notifications (read + unread)
     const [notifications] = await conn.query(
       `SELECT id, title, body, data, type, is_read, created_at
        FROM notifications
        WHERE user_id = ?
        ORDER BY created_at DESC
        LIMIT ? OFFSET ?`,
-      [user.id, isRead, parseInt(limit), parseInt(offset)]
+      [user.id, parseInt(limit), parseInt(offset)]
     );
 
     const formattedNotifications = notifications.map((n) => ({
@@ -433,9 +435,10 @@ router.get("/notifications", authenticateToken, async (req, res) => {
       data: n.data ? JSON.parse(n.data) : null,
     }));
 
+    // Total count (without is_read filter)
     const [[countResult]] = await conn.query(
-      "SELECT COUNT(*) as total FROM notifications WHERE user_id = ? AND is_read = ?",
-      [user.id, isRead]
+      "SELECT COUNT(*) AS total FROM notifications WHERE user_id = ?",
+      [user.id]
     );
 
     const total = countResult.total;
@@ -453,6 +456,7 @@ router.get("/notifications", authenticateToken, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({
+      success: false,
       msg: "Failed to fetch notifications",
       error: err.message,
     });
@@ -460,6 +464,7 @@ router.get("/notifications", authenticateToken, async (req, res) => {
     conn.release();
   }
 });
+
 
 // Mark Notification as Read
 router.put("/notifications/read-all", authenticateToken, async (req, res) => {
