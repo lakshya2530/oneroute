@@ -25,6 +25,26 @@ router.post("/:rideId/send", authenticateToken, async (req, res) => {
       "INSERT INTO messages (ride_id, sender_id, receiver_id, message) VALUES (?, ?, ?, ?)",
       [rideId, sender.id, receiverId, message]
     );
+
+    const [[receiver]] = await conn.query(
+      "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+      [receiverId]
+    );
+
+    if (receiver && receiver.fcm_token) {
+      await sendPushNotification(
+        [receiver.fcm_token], // Single token array
+        "💬 New Message!", // Title
+        `${senderPhone.slice(-4)} sent you a message in ride ${rideId}`, // Body
+        {
+          type: "chat_message",
+          ride_id: rideId,
+          sender_id: sender.id,
+          receiver_id: receiverId,
+          action: "open_chat",
+        }
+      );
+    }
     res.json({ msg: "Message sent." });
   } catch (err) {
     res.status(500).json({ msg: "Failed to send message", error: err.message });
