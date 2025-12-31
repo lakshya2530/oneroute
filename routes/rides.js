@@ -225,10 +225,10 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     sql += ` AND rides.ride_date BETWEEN ? AND ?`;
     params.push(start_date, end_date);
   } else if (start_date) {
-    sql += ` AND rides.ride_date >= ?`;
+    sql += ` AND rides.ride_date = ?`;
     params.push(start_date);
   } else if (end_date) {
-    sql += ` AND rides.ride_date <= ?`;
+    sql += ` AND rides.ride_date = ?`;
     params.push(end_date);
   }
 
