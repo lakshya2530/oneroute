@@ -203,6 +203,7 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
 });
 
 // --- Get All Rides Near User (with optional destination or date filter) ---
+// --- Get All Rides Near User (with optional destination or date filter) ---
 router.get("/get-rides", authenticateToken, async (req, res) => {
   const { search, start_date, end_date } = req.query;
   const { phone } = req.user;
@@ -211,7 +212,8 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     SELECT rides.*
     FROM rides
     JOIN users u ON rides.user_id = u.id
-    WHERE u.phone != ?`;
+    WHERE u.phone != ?
+  `;
   const params = [phone];
 
   // 🔍 Search filter
@@ -220,15 +222,15 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     params.push(`%${search}%`);
   }
 
-  // ✅ SIMPLE DATE RANGE FILTER (exactly like your example)
+  // ✅ DATE FILTER (FIXED)
   if (start_date && end_date) {
-    sql += ` AND rides.ride_date BETWEEN ? AND ?`;
+    sql += ` AND DATE(rides.ride_date) BETWEEN ? AND ?`;
     params.push(start_date, end_date);
   } else if (start_date) {
-    sql += ` AND rides.ride_date = ?`;
+    sql += ` AND DATE(rides.ride_date) = ?`;
     params.push(start_date);
   } else if (end_date) {
-    sql += ` AND rides.ride_date = ?`;
+    sql += ` AND DATE(rides.ride_date) = ?`;
     params.push(end_date);
   }
 
@@ -249,6 +251,7 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     res.status(500).json({ msg: "Failed to fetch rides", error: err.message });
   }
 });
+
 
 // --- Get Full Ride Details (Driver + All Customers + Vehicle) ---
 router.get("/ride/:id", authenticateToken, async (req, res) => {
