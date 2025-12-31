@@ -204,7 +204,7 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
 
 // --- Get All Rides Near User (with optional destination or date filter) ---
 router.get("/get-rides", authenticateToken, async (req, res) => {
-  const { search, filterDate } = req.query;
+  const { search, start_date, end_date } = req.query;
   const { phone } = req.user;
 
   let sql = `
@@ -214,38 +214,28 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     WHERE u.phone != ?`;
   const params = [phone];
 
-  // 🔍 Filter by search on drop location
+  // 🔍 Search filter
   if (search) {
     sql += ` AND rides.drop_location LIKE ?`;
     params.push(`%${search}%`);
   }
 
-  // 🗓️ Smart Date Filtering (uses created_at when ride_date invalid)
-  const dateCondition = `
-    DATE(
-      IF(
-        rides.ride_date IS NULL OR rides.ride_date < '2000-01-01',
-        CONVERT_TZ(rides.created_at, '+00:00', '+05:30'),
-        CONVERT_TZ(rides.ride_date, '+00:00', '+05:30')
-      )
-    )
-  `;
-
-  // ✅ Fixed timezone-safe comparison
-  if (filterDate === "today") {
-    sql += ` AND ${dateCondition} = DATE(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+05:30'))`;
-  } else if (filterDate === "tomorrow") {
-    sql += ` AND ${dateCondition} = DATE(DATE_ADD(CONVERT_TZ(UTC_TIMESTAMP(), '+00:00', '+05:30'), INTERVAL 1 DAY))`;
-  } else if (filterDate && /^\d{4}-\d{2}-\d{2}$/.test(filterDate)) {
-    sql += ` AND ${dateCondition} = ?`;
-    params.push(filterDate);
+  // ✅ SIMPLE DATE RANGE FILTER (exactly like your example)
+  if (start_date && end_date) {
+    sql += ` AND rides.ride_date BETWEEN ? AND ?`;
+    params.push(start_date, end_date);
+  } else if (start_date) {
+    sql += ` AND rides.ride_date >= ?`;
+    params.push(start_date);
+  } else if (end_date) {
+    sql += ` AND rides.ride_date <= ?`;
+    params.push(end_date);
   }
 
   sql += ` ORDER BY rides.created_at DESC`;
 
   try {
     const conn = await pool.getConnection();
-
     const [rides] = await conn.query(sql, params);
     conn.release();
 
@@ -1020,3 +1010,24 @@ router.post("/:rideId/verify-drop", authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
