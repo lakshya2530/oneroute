@@ -223,16 +223,16 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
   }
 
   // ✅ DATE FILTER (FIXED)
-  if (start_date && end_date) {
-    sql += ` AND DATE(rides.ride_date) BETWEEN ? AND ?`;
-    params.push(start_date, end_date);
-  } else if (start_date) {
-    sql += ` AND DATE(rides.ride_date) = ?`;
-    params.push(start_date);
-  } else if (end_date) {
-    sql += ` AND DATE(rides.ride_date) = ?`;
-    params.push(end_date);
-  }
+ if (start_date && end_date) {
+   query += " AND DATE(r.ride_date) BETWEEN ? AND ?";
+   params.push(start_date, end_date);
+ } else if (start_date) {
+   query += " AND DATE(r.ride_date) = ?";
+   params.push(start_date);
+ } else if (end_date) {
+   query += " AND DATE(r.ride_date) = ?";
+   params.push(end_date);
+ }
 
   sql += ` ORDER BY rides.created_at DESC`;
 
