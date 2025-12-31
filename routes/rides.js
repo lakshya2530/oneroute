@@ -205,50 +205,52 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
 // --- Get All Rides Near User (with optional destination or date filter) ---
 // --- Get All Rides Near User (with optional destination or date filter) ---
 router.get("/get-rides", authenticateToken, async (req, res) => {
-  const { search, start_date, end_date } = req.query;
+  const { search, start_date } = req.query;
   const { phone } = req.user;
 
   let sql = `
-    SELECT rides.*
-    FROM rides
-    JOIN users u ON rides.user_id = u.id
+    SELECT r.*
+    FROM rides r
+    JOIN users u ON r.user_id = u.id
     WHERE u.phone != ?
   `;
+
   const params = [phone];
 
-  // 🔍 Search filter
+  // 🔍 Drop location search
   if (search) {
-    sql += ` AND rides.drop_location LIKE ?`;
+    sql += ` AND r.drop_location LIKE ?`;
     params.push(`%${search}%`);
   }
 
-  // ✅ DATE FILTER (FIXED)
- if (start_date && end_date) {
-   query += " AND DATE(r.ride_date) BETWEEN ? AND ?";
-   params.push(start_date, end_date);
- } else if (start_date) {
-   query += " AND DATE(r.ride_date) = ?";
-   params.push(start_date);
- } else if (end_date) {
-   query += " AND DATE(r.ride_date) = ?";
-   params.push(end_date);
- }
+  // ✅ EXACT DATE FILTER (THIS IS THE KEY FIX)
+  if (start_date) {
+    sql += `
+      AND r.ride_date >= ?
+      AND r.ride_date < DATE_ADD(?, INTERVAL 1 DAY)
+    `;
+    params.push(start_date, start_date);
+  }
 
-  sql += ` ORDER BY rides.created_at DESC`;
+  sql += ` ORDER BY r.created_at DESC`;
 
   try {
     const conn = await pool.getConnection();
     const [rides] = await conn.query(sql, params);
     conn.release();
 
-    res.json({
+    return res.json({
       success: true,
       count: rides.length,
       rides,
     });
   } catch (err) {
     console.error("❌ Error fetching rides:", err);
-    res.status(500).json({ msg: "Failed to fetch rides", error: err.message });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch rides",
+      error: err.message,
+    });
   }
 });
 
