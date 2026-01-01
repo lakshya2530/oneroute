@@ -693,7 +693,7 @@ router.post(
 
     const conn = await pool.getConnection();
     try {
-      await conn.beginTransaction();
+      // await conn.beginTransaction();
 
       // 1️⃣ Passenger
       const [[user]] = await conn.query(
