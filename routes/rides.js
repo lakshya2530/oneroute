@@ -692,9 +692,9 @@ router.post(
     const phone = req.user.phone;
 
     const conn = await pool.getConnection();
+    let committed = false;
 
     try {
-      // 🔒 START TRANSACTION
       await conn.beginTransaction();
 
       // 1️⃣ Passenger
@@ -708,7 +708,7 @@ router.post(
         return res.status(404).json({ msg: "User not found" });
       }
 
-      // 2️⃣ Lock request row (IMPORTANT)
+      // 2️⃣ Lock request row
       const [[reqData]] = await conn.query(
         `
         SELECT 
@@ -717,7 +717,6 @@ router.post(
           rr.passenger_id,
           rr.no_of_seats,
           r.id AS ride_id,
-          r.seats_available,
           rr.owner_id,
           u.fcm_token
         FROM ride_requests rr
@@ -734,85 +733,70 @@ router.post(
         return res.status(404).json({ msg: "Ride request not found" });
       }
 
-      // 3️⃣ Only passenger can cancel
       if (reqData.passenger_id !== user.id) {
         await conn.rollback();
-        return res
-          .status(403)
-          .json({ msg: "You can cancel only your own request" });
+        return res.status(403).json({ msg: "Unauthorized" });
       }
 
-      // 4️⃣ Status checks
-      if (reqData.status === "cancelled") {
+      if (["cancelled", "rejected"].includes(reqData.status)) {
         await conn.rollback();
-        return res.status(400).json({ msg: "Request already cancelled" });
+        return res.status(400).json({
+          msg: `Request already ${reqData.status}`,
+        });
       }
 
-      if (reqData.status === "rejected") {
-        await conn.rollback();
-        return res
-          .status(400)
-          .json({ msg: "Rejected request cannot be cancelled" });
-      }
-
-      // 5️⃣ Restore seats ONLY if accepted
+      // Restore seats only if accepted
       if (reqData.status === "accepted") {
         await conn.query(
-          `
-          UPDATE rides
-          SET seats_available = seats_available + ?
-          WHERE id = ?
-          `,
+          `UPDATE rides SET seats_available = seats_available + ? WHERE id = ?`,
           [reqData.no_of_seats, reqData.ride_id]
         );
       }
 
-      // 6️⃣ Cancel request safely
-      const [result] = await conn.query(
-        `
-        UPDATE ride_requests
-        SET status = 'cancelled'
-        WHERE id = ? AND status != 'cancelled'
-        `,
+      await conn.query(
+        `UPDATE ride_requests SET status = 'cancelled' WHERE id = ?`,
         [requestId]
       );
 
-      if (result.affectedRows === 0) {
-        await conn.rollback();
-        return res.status(400).json({ msg: "Request already cancelled" });
-      }
-
-      // ✅ COMMIT
       await conn.commit();
+      committed = true;
 
-      // 7️⃣ Notify owner (after commit)
+      // 🔔 PUSH NOTIFICATION (NON-BLOCKING & OPTIONAL)
       if (reqData.fcm_token) {
-        await sendPushNotification(
-          reqData.fcm_token,
-          "Ride Request Cancelled",
-          `${user.fullname || "Passenger"} cancelled the ride request`,
-          {
-            type: "ride_request_cancelled",
-            request_id: requestId,
-            ride_id: reqData.ride_id,
-            action: "view_requests",
-          },
-          reqData.owner_id
-        );
+        try {
+          await sendPushNotification(
+            reqData.fcm_token,
+            "Ride Request Cancelled",
+            `${user.fullname || "Passenger"} cancelled the ride request`,
+            {
+              type: "ride_request_cancelled",
+              request_id: requestId,
+              ride_id: reqData.ride_id,
+              action: "view_requests",
+            },
+            reqData.owner_id
+          );
+        } catch (pushErr) {
+          console.error("Push notification failed:", pushErr.message);
+        }
       }
 
       return res.json({ msg: "Ride request cancelled successfully" });
     } catch (err) {
-      await conn.rollback();
+      if (!committed) {
+        await conn.rollback();
+      }
       console.error(err);
-      return res
-        .status(500)
-        .json({ msg: "Failed to cancel ride request", error: err.message });
+      return res.status(500).json({
+        msg: "Failed to cancel ride request",
+        error: err.message,
+      });
     } finally {
       conn.release();
     }
   }
 );
+
 
 
 // Accept or Reject the Ride Request (Ride Owner)
