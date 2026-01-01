@@ -688,7 +688,7 @@ router.post(
   "/ride-requests/:rideId/cancel",
   authenticateToken,
   async (req, res) => {
-    const requestId = req.params.id;
+    const requestId = req.params.rideId;
     const phone = req.user.phone;
 
     const conn = await pool.getConnection();
