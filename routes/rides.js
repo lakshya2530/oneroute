@@ -541,7 +541,7 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
 
   const conn = await pool.getConnection();
   try {
-    // Get passenger's user ID
+    // Get passenger
     const [[user]] = await conn.query(
       "SELECT id, fullname FROM users WHERE phone = ?",
       [phone]
@@ -549,28 +549,27 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
     if (!user) return res.status(404).json({ msg: "User not found" });
     const passenger_id = user.id;
 
-    // Get ride details
+    // Get ride
     const [[ride]] = await conn.query("SELECT * FROM rides WHERE id = ?", [
       ride_id,
     ]);
     if (!ride) return res.status(404).json({ msg: "Ride not found" });
     if (ride.ride_status !== "open")
-      return res.status(400).json({ msg: "Ride is not open for booking" });
+      return res.status(400).json({ msg: "Ride is not open" });
     if (no_of_seats > ride.seats_available)
-      return res.status(400).json({ msg: "Not enough seats available" });
+      return res.status(400).json({ msg: "Not enough seats" });
 
     const estimated_amount = no_of_seats * ride.amount_per_seat;
 
-    // Get ride owner details for notification
+    // Get owner ✅ FIXED: Safe handling + default values
     const [[owner]] = await conn.query(
       "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
       [ride.user_id]
     );
 
-    // Insert ride request ✅ FIXED: Capture result.insertId
+    // Insert request
     const result = await conn.query(
-      `INSERT INTO ride_requests 
-       (ride_id, passenger_id, owner_id, pickup_stop, no_of_seats, estimated_amount, message, status) 
+      `INSERT INTO ride_requests (ride_id, passenger_id, owner_id, pickup_stop, no_of_seats, estimated_amount, message, status) 
        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         ride_id,
@@ -583,8 +582,8 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       ]
     );
 
-    // Send push notification to ride owner ✅ Now result.insertId is available
-    if (owner?.fcm_token) {
+    // Send notification ONLY if owner exists and has FCM token ✅ FIXED: Safe checks
+    if (owner && owner.fcm_token) {
       await sendPushNotification(
         owner.fcm_token,
         "New Ride Request!",
@@ -600,7 +599,7 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
           estimated_amount: estimated_amount.toString(),
           action: "view_requests",
         },
-        owner.id
+        owner.id.toString() // ✅ Safe toString()
       );
     }
 
@@ -616,6 +615,7 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
     conn.release();
   }
 });
+
 
 
 // Ride Request for Owner (Under Created Rides)
