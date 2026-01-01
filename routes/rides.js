@@ -561,13 +561,7 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
 
     const estimated_amount = no_of_seats * ride.amount_per_seat;
 
-    // Get owner ✅ FIXED: Safe handling + default values
-    const [[owner]] = await conn.query(
-      "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
-      [ride.user_id]
-    );
-
-    // Insert request
+    // Insert request FIRST (no FCM dependency)
     const result = await conn.query(
       `INSERT INTO ride_requests (ride_id, passenger_id, owner_id, pickup_stop, no_of_seats, estimated_amount, message, status) 
        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
@@ -582,39 +576,52 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       ]
     );
 
-    // Send notification ONLY if owner exists and has FCM token ✅ FIXED: Safe checks
-    if (owner && owner.fcm_token) {
-      await sendPushNotification(
-        owner.fcm_token,
-        "New Ride Request!",
-        `${
-          user.fullname || "Passenger"
-        } requested ${no_of_seats} seat(s) from ${pickup_stop}`,
-        {
-          type: "ride_request",
-          ride_id: ride_id.toString(),
-          request_id: result.insertId.toString(),
-          passenger_id: passenger_id.toString(),
-          no_of_seats: no_of_seats.toString(),
-          estimated_amount: estimated_amount.toString(),
-          action: "view_requests",
-        },
-        owner.id.toString() // ✅ Safe toString()
-      );
-    }
-
+    // Response immediately - success guaranteed
     res.json({
       success: true,
       msg: "Ride request sent successfully",
       request_id: result.insertId,
     });
+
+    // Fire-and-forget notification (won't block response)
+    (async () => {
+      try {
+        const [[owner]] = await conn.query(
+          "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+          [ride.user_id]
+        );
+        if (owner && owner.fcm_token) {
+          await sendPushNotification(
+            owner.fcm_token,
+            "New Ride Request!",
+            `${
+              user.fullname || "Passenger"
+            } requested ${no_of_seats} seat(s) from ${pickup_stop}`,
+            {
+              type: "ride_request",
+              ride_id: ride_id.toString(),
+              request_id: result.insertId.toString(),
+              passenger_id: passenger_id.toString(),
+              no_of_seats: no_of_seats.toString(),
+              estimated_amount: estimated_amount.toString(),
+              action: "view_requests",
+            },
+            owner.id.toString()
+          );
+        }
+      } catch (notifyErr) {
+        console.error("❌ Notification failed (non-blocking):", notifyErr);
+        // Don't fail the main request
+      } finally {
+        conn.release(); // Release after main response
+      }
+    })();
   } catch (err) {
     console.error("❌ Ride request error:", err);
     res.status(500).json({ msg: "Failed to request ride", error: err.message });
-  } finally {
-    conn.release();
   }
 });
+
 
 
 
