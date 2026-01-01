@@ -692,29 +692,39 @@ router.post(
     const phone = req.user.phone;
 
     const conn = await pool.getConnection();
+
     try {
-      // await conn.beginTransaction();
+      // 🔒 START TRANSACTION
+      await conn.beginTransaction();
 
       // 1️⃣ Passenger
       const [[user]] = await conn.query(
         "SELECT id, fullname FROM users WHERE phone = ?",
         [phone]
       );
+
       if (!user) {
         await conn.rollback();
         return res.status(404).json({ msg: "User not found" });
       }
 
-      // 2️⃣ Request + ride + owner
+      // 2️⃣ Lock request row (IMPORTANT)
       const [[reqData]] = await conn.query(
         `
-        SELECT rr.id, rr.status, rr.passenger_id, rr.no_of_seats,
-               r.id AS ride_id, r.seats_available,
-               rr.owner_id, u.fcm_token
+        SELECT 
+          rr.id,
+          rr.status,
+          rr.passenger_id,
+          rr.no_of_seats,
+          r.id AS ride_id,
+          r.seats_available,
+          rr.owner_id,
+          u.fcm_token
         FROM ride_requests rr
         JOIN rides r ON r.id = rr.ride_id
         JOIN users u ON u.id = rr.owner_id
         WHERE rr.id = ?
+        FOR UPDATE
         `,
         [requestId]
       );
@@ -732,7 +742,12 @@ router.post(
           .json({ msg: "You can cancel only your own request" });
       }
 
-      // 4️⃣ Rejected → cannot cancel
+      // 4️⃣ Status checks
+      if (reqData.status === "cancelled") {
+        await conn.rollback();
+        return res.status(400).json({ msg: "Request already cancelled" });
+      }
+
       if (reqData.status === "rejected") {
         await conn.rollback();
         return res
@@ -740,13 +755,7 @@ router.post(
           .json({ msg: "Rejected request cannot be cancelled" });
       }
 
-      // 5️⃣ Already cancelled
-      if (reqData.status === "cancelled") {
-        await conn.rollback();
-        return res.status(400).json({ msg: "Request already cancelled" });
-      }
-
-      // 6️⃣ If accepted → restore seats
+      // 5️⃣ Restore seats ONLY if accepted
       if (reqData.status === "accepted") {
         await conn.query(
           `
@@ -758,19 +767,25 @@ router.post(
         );
       }
 
-      // 7️⃣ Cancel request
-      await conn.query(
+      // 6️⃣ Cancel request safely
+      const [result] = await conn.query(
         `
         UPDATE ride_requests
         SET status = 'cancelled'
-        WHERE id = ?
+        WHERE id = ? AND status != 'cancelled'
         `,
         [requestId]
       );
 
+      if (result.affectedRows === 0) {
+        await conn.rollback();
+        return res.status(400).json({ msg: "Request already cancelled" });
+      }
+
+      // ✅ COMMIT
       await conn.commit();
 
-      // 8️⃣ Notify owner
+      // 7️⃣ Notify owner (after commit)
       if (reqData.fcm_token) {
         await sendPushNotification(
           reqData.fcm_token,
@@ -786,11 +801,11 @@ router.post(
         );
       }
 
-      res.json({ msg: "Ride request cancelled successfully" });
+      return res.json({ msg: "Ride request cancelled successfully" });
     } catch (err) {
       await conn.rollback();
       console.error(err);
-      res
+      return res
         .status(500)
         .json({ msg: "Failed to cancel ride request", error: err.message });
     } finally {
@@ -798,6 +813,7 @@ router.post(
     }
   }
 );
+
 
 // Accept or Reject the Ride Request (Ride Owner)
 router.post(
