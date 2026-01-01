@@ -68,7 +68,7 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
         amount_per_seat,
         pickup_note || null,
         "open",
-         vehicle_id
+        vehicle_id,
       ]
     );
 
@@ -203,7 +203,6 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
 });
 
 // --- Get All Rides Near User (with optional destination or date filter) ---
-// --- Get All Rides Near User (with optional destination or date filter) ---
 router.get("/get-rides", authenticateToken, async (req, res) => {
   const { search, start_date } = req.query;
   const { phone } = req.user;
@@ -253,7 +252,6 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     });
   }
 });
-
 
 // --- Get Full Ride Details (Driver + All Customers + Vehicle) ---
 router.get("/ride/:id", authenticateToken, async (req, res) => {
@@ -536,20 +534,22 @@ router.get("/my-all-ride-requests", authenticateToken, async (req, res) => {
 router.post("/ride-requests", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
   const { ride_id, pickup_stop, no_of_seats, message } = req.body;
+
   if (!ride_id || !pickup_stop || !no_of_seats) {
     return res.status(400).json({ msg: "Missing required fields" });
   }
 
   const conn = await pool.getConnection();
   try {
-    // Get the passenger's user ID based on phone number
-    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
-      phone,
-    ]);
+    // Get passenger's user ID
+    const [[user]] = await conn.query(
+      "SELECT id, fullname FROM users WHERE phone = ?",
+      [phone]
+    );
     if (!user) return res.status(404).json({ msg: "User not found" });
     const passenger_id = user.id;
 
-    // Get the ride details including ride owner user_id
+    // Get ride details
     const [[ride]] = await conn.query("SELECT * FROM rides WHERE id = ?", [
       ride_id,
     ]);
@@ -561,21 +561,21 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
 
     const estimated_amount = no_of_seats * ride.amount_per_seat;
 
-    // ride owner details
+    // Get ride owner details for notification
     const [[owner]] = await conn.query(
       "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
       [ride.user_id]
     );
 
-    // Insert ride request with both passenger_id and ride owner_id
-    await conn.query(
+    // Insert ride request ✅ FIXED: Capture result.insertId
+    const result = await conn.query(
       `INSERT INTO ride_requests 
-        (ride_id, passenger_id, owner_id, pickup_stop, no_of_seats, estimated_amount, message) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (ride_id, passenger_id, owner_id, pickup_stop, no_of_seats, estimated_amount, message, status) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         ride_id,
         passenger_id,
-        ride.user_id, // <-- ride owner ID
+        ride.user_id,
         pickup_stop,
         no_of_seats,
         estimated_amount,
@@ -583,6 +583,7 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       ]
     );
 
+    // Send push notification to ride owner ✅ Now result.insertId is available
     if (owner?.fcm_token) {
       await sendPushNotification(
         owner.fcm_token,
@@ -592,9 +593,9 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
         } requested ${no_of_seats} seat(s) from ${pickup_stop}`,
         {
           type: "ride_request",
-          ride_id: ride_id,
-          request_id: result.insertId,
-          passenger_id: passenger_id,
+          ride_id: ride_id.toString(),
+          request_id: result.insertId.toString(),
+          passenger_id: passenger_id.toString(),
           no_of_seats: no_of_seats.toString(),
           estimated_amount: estimated_amount.toString(),
           action: "view_requests",
@@ -603,14 +604,19 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       );
     }
 
-    res.json({ msg: "Ride request sent successfully" });
+    res.json({
+      success: true,
+      msg: "Ride request sent successfully",
+      request_id: result.insertId,
+    });
   } catch (err) {
-    console.error(err);
+    console.error("❌ Ride request error:", err);
     res.status(500).json({ msg: "Failed to request ride", error: err.message });
   } finally {
     conn.release();
   }
 });
+
 
 // Ride Request for Owner (Under Created Rides)
 router.get("/:rideId/requests", authenticateToken, async (req, res) => {
@@ -669,6 +675,122 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
     conn.release();
   }
 });
+
+// ------------ Cancel the Requested Ride ------------------ (By Customer)
+router.post(
+  "/ride-requests/:rideId/cancel",
+  authenticateToken,
+  async (req, res) => {
+    const requestId = req.params.id;
+    const phone = req.user.phone;
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      // 1️⃣ Passenger
+      const [[user]] = await conn.query(
+        "SELECT id, fullname FROM users WHERE phone = ?",
+        [phone]
+      );
+      if (!user) {
+        await conn.rollback();
+        return res.status(404).json({ msg: "User not found" });
+      }
+
+      // 2️⃣ Request + ride + owner
+      const [[reqData]] = await conn.query(
+        `
+        SELECT rr.id, rr.status, rr.passenger_id, rr.no_of_seats,
+               r.id AS ride_id, r.seats_available,
+               rr.owner_id, u.fcm_token
+        FROM ride_requests rr
+        JOIN rides r ON r.id = rr.ride_id
+        JOIN users u ON u.id = rr.owner_id
+        WHERE rr.id = ?
+        `,
+        [requestId]
+      );
+
+      if (!reqData) {
+        await conn.rollback();
+        return res.status(404).json({ msg: "Ride request not found" });
+      }
+
+      // 3️⃣ Only passenger can cancel
+      if (reqData.passenger_id !== user.id) {
+        await conn.rollback();
+        return res
+          .status(403)
+          .json({ msg: "You can cancel only your own request" });
+      }
+
+      // 4️⃣ Rejected → cannot cancel
+      if (reqData.status === "rejected") {
+        await conn.rollback();
+        return res
+          .status(400)
+          .json({ msg: "Rejected request cannot be cancelled" });
+      }
+
+      // 5️⃣ Already cancelled
+      if (reqData.status === "cancelled") {
+        await conn.rollback();
+        return res.status(400).json({ msg: "Request already cancelled" });
+      }
+
+      // 6️⃣ If accepted → restore seats
+      if (reqData.status === "accepted") {
+        await conn.query(
+          `
+          UPDATE rides
+          SET seats_available = seats_available + ?
+          WHERE id = ?
+          `,
+          [reqData.no_of_seats, reqData.ride_id]
+        );
+      }
+
+      // 7️⃣ Cancel request
+      await conn.query(
+        `
+        UPDATE ride_requests
+        SET status = 'cancelled'
+        WHERE id = ?
+        `,
+        [requestId]
+      );
+
+      await conn.commit();
+
+      // 8️⃣ Notify owner
+      if (reqData.fcm_token) {
+        await sendPushNotification(
+          reqData.fcm_token,
+          "Ride Request Cancelled",
+          `${user.fullname || "Passenger"} cancelled the ride request`,
+          {
+            type: "ride_request_cancelled",
+            request_id: requestId,
+            ride_id: reqData.ride_id,
+            action: "view_requests",
+          },
+          reqData.owner_id
+        );
+      }
+
+      res.json({ msg: "Ride request cancelled successfully" });
+    } catch (err) {
+      await conn.rollback();
+      console.error(err);
+      res
+        .status(500)
+        .json({ msg: "Failed to cancel ride request", error: err.message });
+    } finally {
+      conn.release();
+    }
+  }
+);
 
 // Accept or Reject the Ride Request (Ride Owner)
 router.post(
@@ -1015,24 +1137,3 @@ router.post("/:rideId/verify-drop", authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

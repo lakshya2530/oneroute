@@ -10,44 +10,165 @@ router.post("/:rideId/send", authenticateToken, async (req, res) => {
   const { rideId } = req.params;
   const senderPhone = req.user.phone;
   const { receiverId, message } = req.body;
+
   if (!receiverId || !message) {
-    return res
-      .status(400)
-      .json({ msg: "receiverId and message are required." });
+    return res.status(400).json({ msg: "receiverId and message required" });
   }
+
   const conn = await pool.getConnection();
   try {
-    const [[sender]] = await conn.query("SELECT id FROM users WHERE phone=?", [
-      senderPhone,
-    ]);
-    if (!sender) return res.status(404).json({ msg: "Sender not found" });
-    await conn.query(
-      "INSERT INTO messages (ride_id, sender_id, receiver_id, message) VALUES (?, ?, ?, ?)",
-      [rideId, sender.id, receiverId, message]
+    // Get sender
+    const [[sender]] = await conn.query(
+      "SELECT id FROM users WHERE phone = ?",
+      [senderPhone]
     );
 
-    const [[receiver]] = await conn.query(
-      "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
-      [receiverId]
-    );
-
-    if (receiver && receiver.fcm_token) {
-      await sendPushNotification(
-        [receiver.fcm_token], // Single token array
-        "💬 New Message!", // Title
-        `${senderPhone.slice(-4)} sent you a message in ride ${rideId}`, // Body
-        {
-          type: "chat_message",
-          ride_id: rideId,
-          sender_id: sender.id,
-          receiver_id: receiverId,
-          action: "open_chat",
-        }
-      );
+    if (!sender) {
+      return res.status(404).json({ msg: "Sender not found" });
     }
+
+    // 🚫 PREVENT SELF CHAT
+    if (Number(sender.id) === Number(receiverId)) {
+      return res.status(400).json({
+        msg: "You cannot send messages to yourself.",
+      });
+    }
+
+    // 🔒 Check chat status
+    const [[chat]] = await conn.query(
+      `
+      SELECT chat_status
+      FROM messages
+      WHERE ride_id = ?
+        AND (
+          (sender_id = ? AND receiver_id = ?)
+          OR
+          (sender_id = ? AND receiver_id = ?)
+        )
+      ORDER BY sent_at ASC
+      LIMIT 1
+      `,
+      [rideId, sender.id, receiverId, receiverId, sender.id]
+    );
+
+    // ❌ If chat exists but NOT accepted → block
+    if (chat && chat.chat_status !== "accepted") {
+      return res.status(403).json({
+        msg: "Chat not accepted yet. Please wait for acceptance.",
+      });
+    }
+
+    // ✅ Insert message
+    const status = chat ? "accepted" : "pending";
+
+    await conn.query(
+      `
+      INSERT INTO messages
+      (ride_id, sender_id, receiver_id, message, chat_status)
+      VALUES (?, ?, ?, ?, ?)
+      `,
+      [rideId, sender.id, receiverId, message, status]
+    );
+
     res.json({ msg: "Message sent." });
   } catch (err) {
-    res.status(500).json({ msg: "Failed to send message", error: err.message });
+    console.error(err);
+    res.status(500).json({
+      msg: "Failed to send message",
+      error: err.message,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+// ----- Chat Accept ----
+router.post("/:rideId/accept", authenticateToken, async (req, res) => {
+  const { rideId } = req.params;
+  const userPhone = req.user.phone;
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      userPhone,
+    ]);
+    if (!user) return res.status(404).json({ msg: "User not found" });
+
+    // Accept all pending messages for this ride
+    await conn.query(
+      `
+      UPDATE messages
+      SET chat_status = 'accepted'
+      WHERE ride_id = ?
+        AND receiver_id = ?
+        AND chat_status = 'pending'
+      `,
+      [rideId, user.id]
+    );
+
+    res.json({ msg: "Chat accepted successfully." });
+  } catch (err) {
+    res.status(500).json({ msg: "Failed to accept chat", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+//  ---- Chat Reject -----
+router.post("/:rideId/reject", authenticateToken, async (req, res) => {
+  const { rideId } = req.params;
+  const userPhone = req.user.phone;
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      userPhone,
+    ]);
+
+    await conn.query(
+      `
+      UPDATE messages
+      SET chat_status = 'rejected'
+      WHERE ride_id = ?
+        AND receiver_id = ?
+        AND chat_status = 'pending'
+      `,
+      [rideId, user.id]
+    );
+
+    res.json({ msg: "Chat rejected." });
+  } catch (err) {
+    res.status(500).json({ msg: "Failed to reject chat", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// ---- Chat Cancel -----
+router.post("/:rideId/cancel", authenticateToken, async (req, res) => {
+  const { rideId } = req.params;
+  const userPhone = req.user.phone;
+
+  const conn = await pool.getConnection();
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
+      userPhone,
+    ]);
+
+    await conn.query(
+      `
+      UPDATE messages
+      SET chat_status = 'cancelled'
+      WHERE ride_id = ?
+        AND sender_id = ?
+        AND chat_status = 'pending'
+      `,
+      [rideId, user.id]
+    );
+
+    res.json({ msg: "Chat request cancelled." });
+  } catch (err) {
+    res.status(500).json({ msg: "Failed to cancel chat", error: err.message });
   } finally {
     conn.release();
   }
@@ -57,22 +178,61 @@ router.post("/:rideId/send", authenticateToken, async (req, res) => {
 router.get("/:rideId/history", authenticateToken, async (req, res) => {
   const { rideId } = req.params;
   const userPhone = req.user.phone;
-  console.log(rideId, userPhone);
 
   const conn = await pool.getConnection();
   try {
-    const [[user]] = await conn.query("SELECT id FROM users WHERE phone=?", [
+    // Get logged-in user
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
       userPhone,
     ]);
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+
+    // Fetch chat history
     const [history] = await conn.query(
-      `SELECT * FROM messages WHERE ride_id=? AND (sender_id=? OR receiver_id=?) ORDER BY sent_at ASC`,
+      `
+      SELECT 
+        id,
+        sender_id,
+        receiver_id,
+        message,
+        sent_at,
+        is_read,
+        chat_status
+      FROM messages
+      WHERE ride_id = ?
+        AND (sender_id = ? OR receiver_id = ?)
+      ORDER BY sent_at ASC
+      `,
       [rideId, user.id, user.id]
     );
-    res.json({ history });
+
+    // Determine chat status (from first message)
+    let chatStatus = "no_chat";
+    let pendingForUser = false;
+
+    if (history.length > 0) {
+      chatStatus = history[0].chat_status;
+
+      // If pending & logged-in user is receiver → can accept
+      if (chatStatus === "pending" && history[0].receiver_id === user.id) {
+        pendingForUser = true;
+      }
+    }
+
+    res.json({
+      success: true,
+      chat_status: chatStatus, // pending | accepted | no_chat
+      pending_for_user: pendingForUser,
+      history,
+    });
   } catch (err) {
-    res
-      .status(500)
-      .json({ msg: "Failed to fetch chat history", error: err.message });
+    console.error(err);
+    res.status(500).json({
+      msg: "Failed to fetch chat history",
+      error: err.message,
+    });
   } finally {
     conn.release();
   }
