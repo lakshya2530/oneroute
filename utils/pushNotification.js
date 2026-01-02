@@ -64,6 +64,8 @@ async function sendPushNotification(token, title, body, data = {}, userId) {
     };
 
     const response = await admin.messaging().sendEachForMulticast(message);
+    console.log(JSON.stringify(response, null, 2));
+
     console.log("✅ Notification sent:", response.successCount);
     return response;
 
