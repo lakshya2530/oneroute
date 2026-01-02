@@ -847,19 +847,22 @@ router.post(
           ]
         );
 
-      //  await conn.commit();
+        await conn.commit();
 
         // Push Notification Code
         // const [[passenger]] = await conn.query(
         //   "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
         //   [request.passenger_id]
         // );
-        const [rows] = await conn.query(
-          "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+      
+        
+
+        // Notify passenger
+        const [passengerRows] = await conn.query(
+          "SELECT id, fullname, fcm_token FROM users WHERE id=?",
           [request.passenger_id]
         );
-        
-        const passenger = rows?.[0];
+        const passenger = passengerRows[0];
 
         if (passenger?.fcm_token) {
           await sendPushNotification(
