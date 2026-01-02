@@ -847,17 +847,23 @@ router.post(
           ]
         );
 
-        await conn.commit();
+      //  await conn.commit();
 
         // Push Notification Code
-        const [[passenger]] = await conn.query(
+        // const [[passenger]] = await conn.query(
+        //   "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+        //   [request.passenger_id]
+        // );
+        const [rows] = await conn.query(
           "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
           [request.passenger_id]
         );
+        
+        const passenger = rows?.[0];
 
-        if (passenger[0]?.fcm_token) {
+        if (passenger?.fcm_token) {
           await sendPushNotification(
-            passenger[0].fcm_token,
+            passenger?.fcm_token,
             "🎉 Ride Confirmed!",
             `${owner.fullname || "Owner"} accepted your ride request!`,
             {
@@ -867,7 +873,7 @@ router.post(
               drop_otp: dropOTP,
               action: "view_ride",
             },
-            passenger[0].id
+            passenger?.id
           );
         }
 
