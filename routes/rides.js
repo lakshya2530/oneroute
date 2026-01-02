@@ -858,7 +858,7 @@ router.post(
         
 
         // Notify passenger
-        const [passengerRows] = await conn.query(
+        const [passengerRows] = await pool.query(
           "SELECT id, fullname, fcm_token FROM users WHERE id=?",
           [request.passenger_id]
         );
