@@ -44,46 +44,33 @@
 
 
 const admin = require("../config/firebase");
-const { pool } = require("../db/connection");
+const { promisePool } = require("../db/connection");
 
 async function sendPushNotification(token, title, body, data = {}, userId) {
   try {
-    const tokens = Array.isArray(token) ? token : [token];
     const userIds = Array.isArray(userId) ? userId : [userId];
 
-    // Save notification
     for (const uid of userIds) {
-      if (!uid) continue;
-
-      await pool.query(
-        `INSERT INTO notifications 
-         (user_id, title, body, data, type, created_at)
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [
-          uid,
-          title,
-          body,
-          JSON.stringify(data),
-          data.type || "general",
-        ]
+      await promisePool.query(
+        "INSERT INTO notifications (user_id, title, body, data, type) VALUES (?, ?, ?, ?, ?)",
+        [uid, title, body, JSON.stringify(data), data.type || "general"]
       );
     }
 
-    // Send FCM
-    if (tokens.length) {
-      await admin.messaging().sendEachForMulticast({
-        notification: { title, body },
-        data: Object.fromEntries(
-          Object.entries(data).map(([k, v]) => [k, String(v)])
-        ),
-        tokens,
-      });
-    }
-  } catch (err) {
-    console.error("❌ Error sending notification:", err);
+    const message = {
+      notification: { title, body },
+      data,
+      tokens: Array.isArray(token) ? token : [token],
+    };
+
+    const response = await admin.messaging().sendEachForMulticast(message);
+    console.log("✅ Notification sent:", response.successCount);
+    return response;
+
+  } catch (error) {
+    console.error("❌ Error sending notification:", error);
+    throw error;
   }
 }
 
 module.exports = sendPushNotification;
-
-
