@@ -896,7 +896,9 @@ router.post(
           "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
           [request.passenger_id]
         );
-
+        
+        console.log(passenger?.fcm_token, 'FCM TOKEN')
+        ;
         if (passenger[0]?.fcm_token) {
           await sendPushNotification(
             passenger[0].fcm_token,
