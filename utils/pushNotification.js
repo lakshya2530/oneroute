@@ -46,6 +46,14 @@
 const admin = require("../config/firebase");
 const { promisePool } = require("../db/connection");
 
+function stringifyData(data = {}) {
+  const out = {};
+  for (const key in data) {
+    out[key] = String(data[key]);
+  }
+  return out;
+}
+
 async function sendPushNotification(token, title, body, data = {}, userId) {
   try {
     const userIds = Array.isArray(userId) ? userId : [userId];
