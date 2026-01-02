@@ -867,7 +867,7 @@ router.post(
               drop_otp: dropOTP,
               action: "view_ride",
             },
-            passenger.id
+            passenger[0].id
           );
         }
 
