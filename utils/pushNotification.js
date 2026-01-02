@@ -59,7 +59,11 @@ async function sendPushNotification(token, title, body, data = {}, userId) {
 
     const message = {
       notification: { title, body },
-      data,
+      data: stringifyData({
+        title,
+        body,
+        ...data,
+      }),
       tokens: Array.isArray(token) ? token : [token],
     };
 
