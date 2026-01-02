@@ -850,16 +850,22 @@ router.post(
         await conn.commit();
 
         // Push Notification Code
-        const [[passenger]] = await conn.query(
+        // const [[passenger]] = await conn.query(
+        //   "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+        //   [request.passenger_id]
+        // );
+        const [rows] = await conn.query(
           "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
           [request.passenger_id]
         );
+        
+        const passenger = rows[0]; 
         console.log(passenger?.fcm_token,'ff');
         console.log(passenger?.id,'ss');
 
-        if (passenger?.fcm_token) {
+        if (passenger && passenger.fcm_token) {
           await sendPushNotification(
-            passenger?.fcm_token,
+            passenger.fcm_token,
             "🎉 Ride Confirmed!",
             `${owner.fullname || "Owner"} accepted your ride request!`,
             {
@@ -869,7 +875,7 @@ router.post(
               drop_otp: dropOTP,
               action: "view_ride",
             },
-            passenger?.id
+            passenger.id
           );
         }
 
@@ -897,9 +903,9 @@ router.post(
           [request.passenger_id]
         );
 
-        if (passenger[0]?.fcm_token) {
+        if (passenger && passenger.fcm_token) {
           await sendPushNotification(
-            passenger[0].fcm_token,
+            passenger.fcm_token,
             "❌ Ride Request Cancelled",
             "Your ride request has been cancelled by the owner.",
             {
@@ -907,7 +913,7 @@ router.post(
               ride_id: request.ride_id,
               action: "find_rides",
             },
-            passenger[0].id
+            passenger.id
           );
         }
 
