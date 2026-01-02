@@ -855,13 +855,12 @@ router.post(
           [request.passenger_id]
         );
 
-        console.log(request.passenger_id,'wdwd');
         console.log(passenger?.fcm_token,'dnnn');
 
-        if (passenger[0]?.fcm_token) {
+        if (passenger?.fcm_token) {
 
           await sendPushNotification(
-            passenger[0].fcm_token,
+            passenger?.fcm_token,
             "🎉 Ride Confirmed!",
             `${owner.fullname || "Owner"} accepted your ride request!`,
             {
@@ -871,7 +870,7 @@ router.post(
               drop_otp: dropOTP,
               action: "view_ride",
             },
-            passenger[0].id
+            passenger.id
           );
         }
 
@@ -899,11 +898,10 @@ router.post(
           [request.passenger_id]
         );
         
-        console.log(request.passenger_id, 'FCM TOKEN')
-        ;
-        if (passenger[0]?.fcm_token) {
+        
+        if (passenger?.fcm_token) {
           await sendPushNotification(
-            passenger[0].fcm_token,
+            passenger.fcm_token,
             "❌ Ride Request Cancelled",
             "Your ride request has been cancelled by the owner.",
             {
@@ -911,7 +909,7 @@ router.post(
               ride_id: request.ride_id,
               action: "find_rides",
             },
-            passenger[0].id
+            passenger.id
           );
         }
 
