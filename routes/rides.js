@@ -5,6 +5,7 @@ const pool = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
 const sendPushNotification = require("../utils/pushNotification.js");
+const { promisePool } = require("../db/connection");
 
 const DEFAULT_OTP = "1234";
 
@@ -779,6 +780,7 @@ router.get(
 
 // Accept or Reject the Ride Request (Ride Owner)
 
+
 router.post(
   "/ride-requests/:requestId/respond",
   authenticateToken,
@@ -789,18 +791,10 @@ router.post(
 
     let conn;
 
-    // 1️⃣ Get DB connection safely
     try {
-      conn = await pool.getConnection();
-    } catch (err) {
-      console.error("DB Connection Error:", err);
-      return res.status(500).json({
-        msg: "Database connection failed",
-        error: err.message,
-      });
-    }
+      // 1️⃣ Always get connection from promisePool
+      conn = await promisePool.getConnection();
 
-    try {
       // 2️⃣ Get owner
       const [ownerRows] = await conn.query(
         "SELECT id, fullname FROM users WHERE phone=?",
@@ -825,8 +819,8 @@ router.post(
         `,
         [requestId]
       );
-      const request = requestRows[0];
 
+      const request = requestRows[0];
       if (!request) {
         return res.status(404).json({ msg: "Request not found" });
       }
@@ -877,13 +871,14 @@ router.post(
           ]
         );
 
-        await conn.commit(); // ✅ transaction ends here
+        await conn.commit();
 
-        // Fetch passenger AFTER commit using pool.query
-        const [passengerRows] = await pool.query(
+        // ✅ Use promisePool (NOT pool)
+        const [passengerRows] = await promisePool.query(
           "SELECT id, fullname, fcm_token FROM users WHERE id=?",
           [request.passenger_id]
         );
+
         const passenger = passengerRows[0];
 
         if (passenger?.fcm_token) {
@@ -929,10 +924,11 @@ router.post(
 
         await conn.commit();
 
-        const [passengerRows] = await pool.query(
+        const [passengerRows] = await promisePool.query(
           "SELECT id, fullname, fcm_token FROM users WHERE id=?",
           [request.passenger_id]
         );
+
         const passenger = passengerRows[0];
 
         if (passenger?.fcm_token) {
@@ -954,7 +950,6 @@ router.post(
         });
       }
 
-      // ===================== INVALID =====================
       return res.status(400).json({ msg: "Invalid action" });
     } catch (err) {
       console.error(err);
