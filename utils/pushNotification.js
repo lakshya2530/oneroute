@@ -58,7 +58,7 @@ async function sendPushNotification(token, title, body, data = {}, userId) {
     // 1️⃣ Store notification in DB (SAFE)
     for (const uid of userIds) {
       if (!uid) continue;
-
+console.log(111);
       await pool.query(
         `INSERT INTO notifications 
          (user_id, title, body, data, type, created_at)
