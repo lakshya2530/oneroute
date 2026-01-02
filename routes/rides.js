@@ -855,9 +855,9 @@ router.post(
           [request.passenger_id]
         );
 
-        if (passenger[0]?.fcm_token) {
+        if (passenger?.fcm_token) {
           await sendPushNotification(
-            passenger[0].fcm_token,
+            passenger.fcm_token,
             "🎉 Ride Confirmed!",
             `${owner.fullname || "Owner"} accepted your ride request!`,
             {
@@ -867,7 +867,7 @@ router.post(
               drop_otp: dropOTP,
               action: "view_ride",
             },
-            passenger[0].id
+            passenger.id
           );
         }
 
