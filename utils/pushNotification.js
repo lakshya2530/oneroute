@@ -46,19 +46,15 @@
 const admin = require("../config/firebase");
 const { pool } = require("../db/connection");
 
-/**
- * Send push notification using Firebase Cloud Messaging v1
- */
 async function sendPushNotification(token, title, body, data = {}, userId) {
   try {
-    // Normalize inputs
     const tokens = Array.isArray(token) ? token : [token];
     const userIds = Array.isArray(userId) ? userId : [userId];
 
-    // 1️⃣ Store notification in DB (SAFE)
+    // Save notification
     for (const uid of userIds) {
       if (!uid) continue;
-console.log(111);
+
       await pool.query(
         `INSERT INTO notifications 
          (user_id, title, body, data, type, created_at)
@@ -73,30 +69,21 @@ console.log(111);
       );
     }
 
-    // 2️⃣ Send push notification
-    if (tokens.length > 0) {
-      const message = {
+    // Send FCM
+    if (tokens.length) {
+      await admin.messaging().sendEachForMulticast({
         notification: { title, body },
         data: Object.fromEntries(
           Object.entries(data).map(([k, v]) => [k, String(v)])
         ),
         tokens,
-      };
-
-      const response = await admin.messaging().sendEachForMulticast(message);
-
-      console.log(
-        `✅ Notification sent: ${response.successCount}/${tokens.length}`
-      );
-
-      return response;
+      });
     }
-  } catch (error) {
-    console.error("❌ Error sending notification:", error);
-    // DO NOT throw — avoid breaking API
-    return null;
+  } catch (err) {
+    console.error("❌ Error sending notification:", err);
   }
 }
 
 module.exports = sendPushNotification;
+
 
