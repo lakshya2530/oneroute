@@ -855,7 +855,9 @@ router.post(
           [request.passenger_id]
         );
 
+        console.log(passenger[0]?.fcm_token,'wdwd');
         if (passenger[0]?.fcm_token) {
+
           await sendPushNotification(
             passenger[0].fcm_token,
             "🎉 Ride Confirmed!",
