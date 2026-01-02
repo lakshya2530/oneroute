@@ -854,12 +854,12 @@ router.post(
           "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
           [request.passenger_id]
         );
-        console.log(passenger[0]?.fcm_token,'ff');
-        console.log(passenger[0]?.id,'ss');
+        console.log(passenger?.fcm_token,'ff');
+        console.log(passenger?.id,'ss');
 
-        if (passenger[0]?.fcm_token) {
+        if (passenger?.fcm_token) {
           await sendPushNotification(
-            passenger[0].fcm_token,
+            passenger?.fcm_token,
             "🎉 Ride Confirmed!",
             `${owner.fullname || "Owner"} accepted your ride request!`,
             {
@@ -869,7 +869,7 @@ router.post(
               drop_otp: dropOTP,
               action: "view_ride",
             },
-            passenger[0].id
+            passenger?.id
           );
         }
 
