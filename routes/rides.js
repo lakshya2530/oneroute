@@ -854,7 +854,7 @@ router.post(
           "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
           [request.passenger_id]
         );
-
+        
         if (passenger?.fcm_token) {
           await sendPushNotification(
             passenger.fcm_token,
@@ -867,9 +867,10 @@ router.post(
               drop_otp: dropOTP,
               action: "view_ride",
             },
-            passenger[0].id
+            passenger.id   // ✅ FIXED
           );
         }
+        
 
         console.log(
           `✅ Ride ${request.ride_id}: Pickup OTP=${pickupOTP}, Drop OTP=${dropOTP}`
