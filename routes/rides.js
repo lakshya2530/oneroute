@@ -854,30 +854,34 @@ router.post(
         //   "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
         //   [request.passenger_id]
         // );
-        const [rows] = await conn.query(
-          "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
-          [request.passenger_id]
-        );
-        
-        const passenger = rows[0]; 
-        console.log(passenger?.fcm_token,'ff');
-        console.log(passenger?.id,'ss');
+       // Get passenger BEFORE commit
+const [rows] = await conn.query(
+  "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+  [request.passenger_id]
+);
 
-        if (passenger && passenger.fcm_token) {
-          await sendPushNotification(
-            passenger.fcm_token,
-            "🎉 Ride Confirmed!",
-            `${owner.fullname || "Owner"} accepted your ride request!`,
-            {
-              type: "ride_accepted",
-              ride_id: request.ride_id,
-              pickup_otp: pickupOTP,
-              drop_otp: dropOTP,
-              action: "view_ride",
-            },
-            passenger.id
-          );
-        }
+            const passenger = rows[0];
+
+            await conn.commit(); // ✅ commit AFTER all queries
+
+            console.log(passenger?.fcm_token, 'ff');
+            console.log(passenger?.id, 'ss');
+
+            if (passenger && passenger.fcm_token) {
+              await sendPushNotification(
+                passenger.fcm_token,
+                "🎉 Ride Confirmed!",
+                `${owner.fullname || "Owner"} accepted your ride request!`,
+                {
+                  type: "ride_accepted",
+                  ride_id: request.ride_id,
+                  pickup_otp: pickupOTP,
+                  drop_otp: dropOTP,
+                  action: "view_ride",
+                },
+                passenger.id
+              );
+            }
 
         console.log(
           `✅ Ride ${request.ride_id}: Pickup OTP=${pickupOTP}, Drop OTP=${dropOTP}`
