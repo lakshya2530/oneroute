@@ -1,14 +1,36 @@
 const mysql = require("mysql2");
 
-const pool = mysql.createPool({
+const rawPool = mysql.createPool({
   host: "localhost",
-  user: "oneroute", // your MySQL username
-  password: "Oneroute@123", // your MySQL password
-  database: "oneroute", // database name
+  user: "oneroute",
+  password: "Oneroute@123",
+  database: "oneroute",
   connectionLimit: 10,
+  charset: "utf8mb4",
 });
 
-pool.getConnection((err, connection) => {
+const promisePool = rawPool.promise();
+
+const pool = {
+  // For: await pool.query(...)
+  query: (...args) => promisePool.query(...args),
+
+  // For: await pool.getConnection()
+  getConnection: async () => {
+    const conn = await promisePool.getConnection();
+
+    return {
+      query: (...args) => conn.query(...args),
+      beginTransaction: () => conn.beginTransaction(),
+      commit: () => conn.commit(),
+      rollback: () => conn.rollback(),
+      release: () => conn.release(),
+    };
+  },
+};
+
+// Optional: test connection once
+rawPool.getConnection((err, connection) => {
   if (err) {
     console.error("❌ Database connection failed:", err.message);
   } else {
@@ -17,4 +39,4 @@ pool.getConnection((err, connection) => {
   }
 });
 
-module.exports = pool.promise(); // use promise wrapper
+module.exports = pool;
