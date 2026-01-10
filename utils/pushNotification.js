@@ -43,8 +43,56 @@
 // module.exports = sendPushNotification;
 
 
+// const admin = require("../config/firebase");
+// const { promisePool } = require("../db/connection");
+
+// function stringifyData(data = {}) {
+//   const out = {};
+//   for (const key in data) {
+//     out[key] = String(data[key]);
+//   }
+//   return out;
+// }
+
+// async function sendPushNotification(token, title, body, data = {}, userId) {
+//   try {
+//     const userIds = Array.isArray(userId) ? userId : [userId];
+
+//     for (const uid of userIds) {
+//       await promisePool.query(
+//         "INSERT INTO notifications (user_id, title, body, data, type) VALUES (?, ?, ?, ?, ?)",
+//         [uid, title, body, JSON.stringify(data), data.type || "general"]
+//       );
+//     }
+
+//     const message = {
+//       notification: { title, body },
+//       data: stringifyData({
+//         title,
+//         body,
+//         ...data,
+//       }),
+//       tokens: Array.isArray(token) ? token : [token],
+//     };
+
+//     const response = await admin.messaging().sendEachForMulticast(message);
+//     console.log(JSON.stringify(response, null, 2));
+
+//     console.log("✅ Notification sent:", response.successCount);
+//     return response;
+
+//   } catch (error) {
+//     console.error("❌ Error sending notification:", error);
+//     throw error;
+//   }
+// }
+
+// module.exports = sendPushNotification;
+
+
+
 const admin = require("../config/firebase");
-const { promisePool } = require("../db/connection");
+const promisePool = require("../db/connection");
 
 function stringifyData(data = {}) {
   const out = {};
@@ -67,20 +115,15 @@ async function sendPushNotification(token, title, body, data = {}, userId) {
 
     const message = {
       notification: { title, body },
-      data: stringifyData({
-        title,
-        body,
-        ...data,
-      }),
+      data: stringifyData(data),
       tokens: Array.isArray(token) ? token : [token],
     };
 
     const response = await admin.messaging().sendEachForMulticast(message);
     console.log(JSON.stringify(response, null, 2));
-
     console.log("✅ Notification sent:", response.successCount);
-    return response;
 
+    return response;
   } catch (error) {
     console.error("❌ Error sending notification:", error);
     throw error;
