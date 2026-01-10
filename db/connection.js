@@ -12,8 +12,10 @@ const rawPool = mysql.createPool({
 const promisePool = rawPool.promise();
 
 const pool = {
+  // For: await pool.query(...)
   query: (...args) => promisePool.query(...args),
 
+  // For: await pool.getConnection()
   getConnection: async () => {
     const conn = await promisePool.getConnection();
 
@@ -27,6 +29,7 @@ const pool = {
   },
 };
 
+// Optional: test connection once
 rawPool.getConnection((err, connection) => {
   if (err) {
     console.error("❌ Database connection failed:", err.message);
@@ -36,7 +39,4 @@ rawPool.getConnection((err, connection) => {
   }
 });
 
-module.exports = {
-  pool,
-  promisePool, // ✅ EXPORT THIS
-};
+module.exports = pool;

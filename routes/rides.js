@@ -802,45 +802,44 @@ router.post(
     let conn;
 
     try {
-      conn = await promisePool.getConnection();
+      // 1️⃣ Always get connection from promisePool
+      conn = await pool.getConnection();
 
-      // 1️⃣ Get owner
+      // 2️⃣ Get owner
       const [ownerRows] = await conn.query(
-        "SELECT id, fullname FROM users WHERE phone = ?",
+        "SELECT id, fullname FROM users WHERE phone=?",
         [ownerPhone]
       );
-
-      if (!ownerRows.length) {
+      const owner = ownerRows[0];
+      if (!owner) {
         return res.status(404).json({ msg: "Owner not found" });
       }
 
-      const owner = ownerRows[0];
-
-      // 2️⃣ Get request + ride
+      // 3️⃣ Get ride request
       const [requestRows] = await conn.query(
         `
         SELECT rr.*, 
-               r.user_id AS owner_id,
-               r.seats_available,
+               r.user_id AS owner_id, 
+               r.seats_available, 
+               r.ride_status, 
                r.id AS ride_id
         FROM ride_requests rr
         JOIN rides r ON rr.ride_id = r.id
-        WHERE rr.id = ?
+        WHERE rr.id=?
         `,
         [requestId]
       );
 
-      if (!requestRows.length) {
+      const request = requestRows[0];
+      if (!request) {
         return res.status(404).json({ msg: "Request not found" });
       }
-
-      const request = requestRows[0];
 
       if (request.owner_id !== owner.id) {
         return res.status(403).json({ msg: "Not authorized" });
       }
 
-      // ================= ACCEPT =================
+      // ===================== ACCEPT =====================
       if (action === "accept") {
         if (request.no_of_seats > request.seats_available) {
           return res.status(400).json({ msg: "Not enough seats available" });
@@ -852,24 +851,21 @@ router.post(
         await conn.beginTransaction();
 
         await conn.query(
-          "UPDATE ride_requests SET status = 'accepted' WHERE id = ?",
+          "UPDATE ride_requests SET status='accepted' WHERE id=?",
           [requestId]
         );
 
         const remainingSeats = request.seats_available - request.no_of_seats;
+        const rideStatus = remainingSeats === 0 ? "full" : "open";
 
         await conn.query(
-          "UPDATE rides SET seats_available = ?, ride_status = ? WHERE id = ?",
-          [
-            remainingSeats,
-            remainingSeats === 0 ? "full" : "open",
-            request.ride_id,
-          ]
+          "UPDATE rides SET seats_available=?, ride_status=? WHERE id=?",
+          [remainingSeats, rideStatus, request.ride_id]
         );
 
         await conn.query(
           `
-          INSERT INTO ride_otps
+          INSERT INTO ride_otps 
           (ride_id, user_id, owner_id, pickup_otp, drop_otp, pickup_verified, drop_verified, created_at)
           VALUES (?, ?, ?, ?, ?, false, false, NOW())
           `,
@@ -884,96 +880,87 @@ router.post(
 
         await conn.commit();
 
-        // ✅ Respond FIRST
-        res.json({
+        // ✅ Use promisePool (NOT pool)
+        const [passengerRows] = await pool.query(
+          "SELECT id, fullname, fcm_token FROM users WHERE id=?",
+          [request.passenger_id]
+        );
+
+        const passenger = passengerRows[0];
+
+        if (passenger?.fcm_token) {
+          await sendPushNotification(
+            passenger.fcm_token,
+            "🎉 Ride Confirmed!",
+            `${owner.fullname} accepted your ride request!`,
+            {
+              type: "ride_accepted",
+              ride_id: request.ride_id,
+              pickup_otp: pickupOTP,
+              drop_otp: dropOTP,
+              action: "view_ride",
+            },
+            passenger.id
+          );
+        }
+
+        return res.json({
           msg: "Ride accepted",
           pickupOTP,
           dropOTP,
         });
-
-        // 🔔 Fire-and-forget notification
-        (async () => {
-          try {
-            const [[passenger]] = await promisePool.query(
-              "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
-              [request.passenger_id]
-            );
-
-            if (passenger?.fcm_token) {
-              await sendPushNotification(
-                passenger.fcm_token,
-                "🎉 Ride Confirmed!",
-                `${owner.fullname} accepted your ride request!`,
-                {
-                  type: "ride_accepted",
-                  ride_id: request.ride_id.toString(),
-                  pickup_otp: pickupOTP,
-                  drop_otp: dropOTP,
-                  action: "view_ride",
-                },
-                passenger.id.toString()
-              );
-            }
-          } catch (err) {
-            console.error("🔔 Accept notification failed:", err);
-          }
-        })();
-
-        return;
       }
 
-      // ================= REJECT =================
+      // ===================== REJECT =====================
       if (action === "reject") {
         await conn.beginTransaction();
 
         await conn.query(
-          "UPDATE ride_requests SET status = 'rejected' WHERE id = ?",
+          `
+          DELETE ro FROM ride_otps ro
+          JOIN ride_requests rr ON rr.ride_id = ro.ride_id
+          WHERE rr.id = ?
+          `,
+          [requestId]
+        );
+
+        await conn.query(
+          "UPDATE ride_requests SET status='rejected' WHERE id=?",
           [requestId]
         );
 
         await conn.commit();
 
-        res.json({ msg: "Ride rejected" });
+        const [passengerRows] = await pool.query(
+          "SELECT id, fullname, fcm_token FROM users WHERE id=?",
+          [request.passenger_id]
+        );
 
-        // 🔔 Fire-and-forget notification
-        (async () => {
-          try {
-            const [[passenger]] = await promisePool.query(
-              "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
-              [request.passenger_id]
-            );
-            console.log(passenger);
-            if (passenger?.fcm_token) {
-              await sendPushNotification(
-                passenger.fcm_token,
-                "❌ Ride Rejected",
-                "Your ride request was rejected by the owner.",
-                {
-                  type: "ride_rejected",
-                  ride_id: request.ride_id.toString(),
-                  action: "find_rides",
-                },
-                passenger.id.toString()
-              );
-            }
-          } catch (err) {
-            console.error("🔔 Reject notification failed:", err);
-          }
-        })();
+        const passenger = passengerRows[0];
 
-        return;
+        if (passenger?.fcm_token) {
+          await sendPushNotification(
+            passenger.fcm_token,
+            "❌ Ride Request Cancelled",
+            "Your ride request has been cancelled by the owner.",
+            {
+              type: "ride_rejected",
+              ride_id: request.ride_id,
+              action: "find_rides",
+            },
+            passenger.id
+          );
+        }
+
+        return res.json({
+          msg: "Ride rejected and OTPs removed",
+        });
       }
 
       return res.status(400).json({ msg: "Invalid action" });
     } catch (err) {
-      console.error("❌ Respond error:", err);
-
-      if (conn) {
-        try {
-          await conn.rollback();
-        } catch {}
-      }
-
+      console.error(err);
+      if (conn) await conn.rollback();
       return res.status(500).json({
         msg: "Failed to respond",
         error: err.message,
