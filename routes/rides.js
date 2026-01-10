@@ -802,7 +802,7 @@ router.post(
     let conn;
 
     try {
-      conn = await promisePool.getConnection();
+      conn = await pool.getConnection();
 
       // 1️⃣ Get owner
       const [ownerRows] = await conn.query(
@@ -894,7 +894,7 @@ router.post(
         // 🔔 Fire-and-forget notification
         (async () => {
           try {
-            const [[passenger]] = await promisePool.query(
+            const [[passenger]] = await pool.query(
               "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
               [request.passenger_id]
             );
@@ -938,7 +938,7 @@ router.post(
         // 🔔 Fire-and-forget notification
         (async () => {
           try {
-            const [[passenger]] = await promisePool.query(
+            const [[passenger]] = await pool.query(
               "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
               [request.passenger_id]
             );
