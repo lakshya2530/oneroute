@@ -5,7 +5,7 @@ const pool = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
 const sendPushNotification = require("../utils/pushNotification.js");
-const { promisePool } = require("../db/connection");
+const { promisePool } = require("../db/connection.js");
 
 const DEFAULT_OTP = "1234";
 
@@ -76,7 +76,10 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
     res.json({ msg: "Ride created successfully" });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ msg: "Failed to create ride", error: err.message });
+    res.status(500).json({
+      msg: `Failed to create ride: ${err.sqlMessage || err.message}`,
+      error: err.sqlMessage || err.message,
+    });
   } finally {
     conn.release();
   }
@@ -623,62 +626,73 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
   }
 });
 
-
-
-
 // Ride Request for Owner (Under Created Rides)
 router.get("/:rideId/requests", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
   const { rideId } = req.params;
 
   const conn = await pool.getConnection();
+
   try {
     const baseUrl =
       process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
 
-    // Get owner id from phone
-    const [[user]] = await conn.query("SELECT * FROM users WHERE phone = ?", [
+    // 1️⃣ Get owner
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
       phone,
     ]);
-    if (!user) return res.status(404).json({ msg: "User not found" });
 
-    const owner_id = user.id;
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
 
-    // Check if ride belongs to this owner
+    // 2️⃣ Verify ride ownership
     const [[ride]] = await conn.query(
       "SELECT * FROM rides WHERE id = ? AND user_id = ?",
-      [rideId, owner_id]
+      [rideId, user.id]
     );
-    if (!ride)
-      return res
-        .status(404)
-        .json({ msg: "Ride not found or you are not the owner" });
 
-    // Fetch ride requests along with passenger details
+    if (!ride) {
+      return res.status(404).json({
+        msg: "Ride not found or you are not the owner",
+      });
+    }
+
+    // 3️⃣ Fetch ONLY active requests
     const [requestsRaw] = await conn.query(
-      `SELECT rr.*, u.id AS user_id, u.fullname, u.phone, u.gender, u.profile_pic
-       FROM ride_requests rr
-       JOIN users u ON rr.passenger_id = u.id
-       WHERE rr.ride_id = ?`,
+      `
+      SELECT rr.*, 
+             u.id AS user_id, 
+             u.fullname, 
+             u.phone, 
+             u.gender, 
+             u.profile_pic
+      FROM ride_requests rr
+      JOIN users u ON rr.passenger_id = u.id
+      WHERE rr.ride_id = ?
+        AND rr.status IN ('pending', 'accepted')
+      ORDER BY rr.created_at DESC
+      `,
       [rideId]
     );
 
-    // Add full URLs dynamically for profile_pic and gov_id_image fields
-    const requests = requestsRaw.map((r) => {
-      return {
-        ...r,
-        profile_pic: r.profile_pic
-          ? `${baseUrl}/${r.profile_pic.replace(/\\/g, "/")}`
-          : null,
-      };
-    });
+    const requests = requestsRaw.map((r) => ({
+      ...r,
+      profile_pic: r.profile_pic
+        ? `${baseUrl}/${r.profile_pic.replace(/\\/g, "/")}`
+        : null,
+    }));
 
-    res.json({ ride, requests });
+    res.json({
+      ride,
+      requests,
+    });
   } catch (err) {
     console.error(err);
-    res
-      .status(500)
-      .json({ msg: "Failed to fetch requests", error: err.message });
+    res.status(500).json({
+      msg: "Failed to fetch requests",
+      error: err.message,
+    });
   } finally {
     conn.release();
   }
@@ -695,7 +709,7 @@ router.get(
     try {
       const conn = await pool.getConnection();
 
-      // 1️⃣ Get passenger + request in single query
+      //  Get passenger + request in single query
       const [[reqData]] = await conn.query(
         `
       SELECT rr.id, rr.status, rr.passenger_id, rr.no_of_seats,
@@ -718,12 +732,12 @@ router.get(
           .json({ msg: "Request not found or access denied" });
       }
 
-      // 2️⃣ Quick status checks
+      //  Quick status checks
       if (reqData.status === "rejected" || reqData.status === "cancelled") {
         return res.status(400).json({ msg: "Cannot cancel this status" });
       }
 
-      // 3️⃣ Update (simple single query - no transaction)
+      //  Update (simple single query - no transaction)
       const updateConn = await pool.getConnection();
       try {
         // Restore seats if accepted
@@ -741,7 +755,7 @@ router.get(
         );
         updateConn.release();
 
-        // 4️⃣ Fire-and-forget notification
+        //  Fire-and-forget notification
         if (reqData.fcm_token) {
           (async () => {
             try {
@@ -766,7 +780,7 @@ router.get(
         res.json({ success: true, msg: "Request cancelled successfully" });
       } catch (updateErr) {
         updateConn.release();
-        throw updateErr; // Re-throw to main catch
+        throw updateErr;
       }
     } catch (err) {
       console.error("Cancel error:", err);
@@ -775,11 +789,7 @@ router.get(
   }
 );
 
-
-
-
 // Accept or Reject the Ride Request (Ride Owner)
-
 
 router.post(
   "/ride-requests/:requestId/respond",
@@ -832,9 +842,7 @@ router.post(
       // ===================== ACCEPT =====================
       if (action === "accept") {
         if (request.no_of_seats > request.seats_available) {
-          return res
-            .status(400)
-            .json({ msg: "Not enough seats available" });
+          return res.status(400).json({ msg: "Not enough seats available" });
         }
 
         const pickupOTP = DEFAULT_OTP;
@@ -847,8 +855,7 @@ router.post(
           [requestId]
         );
 
-        const remainingSeats =
-          request.seats_available - request.no_of_seats;
+        const remainingSeats = request.seats_available - request.no_of_seats;
         const rideStatus = remainingSeats === 0 ? "full" : "open";
 
         await conn.query(
@@ -964,7 +971,6 @@ router.post(
   }
 );
 
-
 // router.post(
 //   "/ride-requests/:requestId/respond",
 //   authenticateToken,
@@ -983,11 +989,11 @@ router.post(
 
 //       const [[request]] = await conn.query(
 //         `
-//   SELECT rr.*, 
-//          r.user_id AS owner_id, 
-//          r.seats_available, 
-//          r.ride_status, 
-//          r.id AS ride_id, 
+//   SELECT rr.*,
+//          r.user_id AS owner_id,
+//          r.seats_available,
+//          r.ride_status,
+//          r.id AS ride_id,
 //          rr.passenger_id AS passenger_id
 //   FROM ride_requests rr
 //   JOIN rides r ON rr.ride_id = r.id
@@ -1065,8 +1071,8 @@ router.post(
 //       } else if (action === "reject") {
 //         await conn.query(
 //           `
-//         DELETE ro FROM ride_otps ro 
-//         JOIN ride_requests rr ON rr.ride_id = ro.ride_id 
+//         DELETE ro FROM ride_otps ro
+//         JOIN ride_requests rr ON rr.ride_id = ro.ride_id
 //         WHERE rr.id = ?`,
 //           [requestId]
 //         );
