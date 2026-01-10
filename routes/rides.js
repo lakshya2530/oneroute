@@ -802,7 +802,7 @@ router.post(
     let conn;
 
     try {
-      conn = await pool.getConnection();
+      conn = await promisePool.getConnection();
 
       // 1️⃣ Get owner
       const [ownerRows] = await conn.query(
@@ -894,7 +894,7 @@ router.post(
         // 🔔 Fire-and-forget notification
         (async () => {
           try {
-            const [[passenger]] = await pool.query(
+            const [[passenger]] = await promisePool.query(
               "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
               [request.passenger_id]
             );
@@ -938,11 +938,11 @@ router.post(
         // 🔔 Fire-and-forget notification
         (async () => {
           try {
-            const [[passenger]] = await pool.query(
+            const [[passenger]] = await promisePool.query(
               "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
               [request.passenger_id]
             );
-
+            console.log(passenger);
             if (passenger?.fcm_token) {
               await sendPushNotification(
                 passenger.fcm_token,
@@ -983,7 +983,6 @@ router.post(
     }
   }
 );
-
 
 // router.post(
 //   "/ride-requests/:requestId/respond",
