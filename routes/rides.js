@@ -17,7 +17,7 @@ router.post(
     const { rideId } = req.params;
     const { latitude, longitude, user_type } = req.body;
     const userId = req.user.id;
-console.log(userId);
+console.log(userId,'ddddsdsddsddd');
     // Validation
     if (!latitude || !longitude) {
       return res.status(400).json({ msg: "Latitude & longitude required" });
