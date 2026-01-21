@@ -9,15 +9,15 @@ const { promisePool } = require("../db/connection.js");
 
 const DEFAULT_OTP = "1234";
 
-
 router.post(
   "/:rideId/live-location",
   authenticateToken,
   async (req, res) => {
     const { rideId } = req.params;
     const { latitude, longitude, user_type } = req.body;
-    const userId = req.user.id;
+    const userId = req.user;
 console.log(userId,'ddddsdsddsddd');
+
     // Validation
     if (!latitude || !longitude) {
       return res.status(400).json({ msg: "Latitude & longitude required" });
