@@ -15,8 +15,20 @@ router.post(
   async (req, res) => {
     const { rideId } = req.params;
     const { latitude, longitude, user_type } = req.body;
-    const userId = req.user;
-console.log(userId,'ddddsdsddsddd');
+    const phone = req.user.phone;
+
+    const [[user]] = await conn.query(
+      "SELECT id FROM users WHERE phone = ? LIMIT 1",
+      [phone]
+    );
+  
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
+    }
+  
+    const userId = user.id; // ✅ THIS IS YOUR USER ID
+  
+    console.log("User ID:", userId);
 
     // Validation
     if (!latitude || !longitude) {
