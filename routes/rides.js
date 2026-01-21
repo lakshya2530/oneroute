@@ -16,20 +16,6 @@ router.post(
     const { rideId } = req.params;
     const { latitude, longitude, user_type } = req.body;
     const phone = req.user.phone;
-    const conn = await pool.getConnection();
-
-    const [[user]] = await conn.query(
-      "SELECT id FROM users WHERE phone = ? LIMIT 1",
-      [phone]
-    );
-  
-    if (!user) {
-      return res.status(404).json({ msg: "User not found" });
-    }
-  
-    const userId = user.id; // ✅ THIS IS YOUR USER ID
-  
-    console.log("User ID:", userId);
 
     // Validation
     if (!latitude || !longitude) {
@@ -41,15 +27,28 @@ router.post(
     }
 
     try {
+      // 1️⃣ Get user ID from phone
+      const [[user]] = await promisePool.query(
+        "SELECT id FROM users WHERE phone = ? LIMIT 1",
+        [phone]
+      );
+
+      if (!user) {
+        return res.status(404).json({ msg: "User not found" });
+      }
+
+      const userId = user.id;
+
+      // 2️⃣ Insert / update live location
       await promisePool.query(
         `
         INSERT INTO ride_live_locations
-        (ride_id, user_id, user_type, latitude, longitude)
+          (ride_id, user_id, user_type, latitude, longitude)
         VALUES (?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
-          latitude=VALUES(latitude),
-          longitude=VALUES(longitude),
-          updated_at=NOW()
+          latitude = VALUES(latitude),
+          longitude = VALUES(longitude),
+          updated_at = NOW()
         `,
         [rideId, userId, user_type, latitude, longitude]
       );
@@ -58,6 +57,7 @@ router.post(
         msg: "Location updated",
         user_type,
       });
+
     } catch (err) {
       console.error(err);
       return res.status(500).json({
