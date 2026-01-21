@@ -9,6 +9,95 @@ const { promisePool } = require("../db/connection.js");
 
 const DEFAULT_OTP = "1234";
 
+router.post(
+  "/:rideId/live-location",
+  authenticateToken,
+  async (req, res) => {
+    const { rideId } = req.params;
+    const { latitude, longitude, user_type } = req.body;
+    const userId = req.user.id;
+
+    // Validation
+    if (!latitude || !longitude) {
+      return res.status(400).json({ msg: "Latitude & longitude required" });
+    }
+
+    if (!["driver", "passenger"].includes(user_type)) {
+      return res.status(400).json({ msg: "Invalid user_type" });
+    }
+
+    try {
+      await promisePool.query(
+        `
+        INSERT INTO ride_live_locations
+        (ride_id, user_id, user_type, latitude, longitude)
+        VALUES (?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE
+          latitude=VALUES(latitude),
+          longitude=VALUES(longitude),
+          updated_at=NOW()
+        `,
+        [rideId, userId, user_type, latitude, longitude]
+      );
+
+      return res.json({
+        msg: "Location updated",
+        user_type,
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        msg: "Failed to update location",
+        error: err.message,
+      });
+    }
+  }
+);
+
+
+router.get(
+  "/:rideId/live-location",
+  authenticateToken,
+  async (req, res) => {
+    const { rideId } = req.params;
+    const { user_type } = req.query;
+
+    if (!["driver", "passenger"].includes(user_type)) {
+      return res.status(400).json({ msg: "Invalid user_type" });
+    }
+
+    try {
+      const [rows] = await promisePool.query(
+        `
+        SELECT latitude, longitude, updated_at
+        FROM ride_live_locations
+        WHERE ride_id=? AND user_type=?
+        `,
+        [rideId, user_type]
+      );
+
+      if (!rows.length) {
+        return res.status(404).json({
+          msg: `${user_type} location not found`,
+        });
+      }
+
+      return res.json({
+        user_type,
+        latitude: rows[0].latitude,
+        longitude: rows[0].longitude,
+        last_updated: rows[0].updated_at,
+      });
+    } catch (err) {
+      return res.status(500).json({
+        msg: "Failed to fetch location",
+        error: err.message,
+      });
+    }
+  }
+);
+
+
 // --- Create Ride ---
 router.post("/", authenticateToken, upload.none(), async (req, res) => {
   const { phone } = req.user;
