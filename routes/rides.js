@@ -9,6 +9,7 @@ const { promisePool } = require("../db/connection.js");
 
 const DEFAULT_OTP = "1234";
 
+
 router.post(
   "/:rideId/live-location",
   authenticateToken,
