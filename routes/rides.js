@@ -16,6 +16,7 @@ router.post(
     const { rideId } = req.params;
     const { latitude, longitude, user_type } = req.body;
     const phone = req.user.phone;
+    const conn = await pool.getConnection();
 
     const [[user]] = await conn.query(
       "SELECT id FROM users WHERE phone = ? LIMIT 1",
