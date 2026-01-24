@@ -154,7 +154,7 @@ router.get("/me", authenticateToken, async (req, res) => {
 
   try {
     // 1️⃣ Get user ID
-    const [[user]] = await promisePool.query(
+    const [[user]] = await pool.query(
       "SELECT id FROM users WHERE phone = ? LIMIT 1",
       [phone]
     );
@@ -166,7 +166,7 @@ router.get("/me", authenticateToken, async (req, res) => {
     const userId = user.id;
 
     // 2️⃣ Reviews received as RIDER
-    const [asRider] = await promisePool.query(
+    const [asRider] = await pool.query(
       `
       SELECT rating, comment, created_at
       FROM reviews
@@ -178,7 +178,7 @@ router.get("/me", authenticateToken, async (req, res) => {
     );
 
     // 3️⃣ Reviews received as PASSENGER
-    const [asPassenger] = await promisePool.query(
+    const [asPassenger] = await pool.query(
       `
       SELECT rating, comment, created_at
       FROM reviews
@@ -190,7 +190,7 @@ router.get("/me", authenticateToken, async (req, res) => {
     );
 
     // 4️⃣ Averages
-    const [[riderAvg]] = await promisePool.query(
+    const [[riderAvg]] = await pool.query(
       `
       SELECT ROUND(AVG(rating),1) AS avg_rating
       FROM reviews
@@ -200,7 +200,7 @@ router.get("/me", authenticateToken, async (req, res) => {
       [userId]
     );
 
-    const [[passengerAvg]] = await promisePool.query(
+    const [[passengerAvg]] = await pool.query(
       `
       SELECT ROUND(AVG(rating),1) AS avg_rating
       FROM reviews
