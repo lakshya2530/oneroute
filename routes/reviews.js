@@ -214,7 +214,7 @@ router.get("/me", authenticateToken, async (req, res) => {
 
 router.get("/user/:userId", async (req, res) => {
   const { userId } = req.params;
-  const { role } = req.query; // RIDER | PASSENGER
+  let { role } = req.query; // rider | passenger | any case
 
   if (!role) {
     return res.status(400).json({
