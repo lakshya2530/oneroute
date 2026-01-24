@@ -238,7 +238,7 @@ router.get("/user/:userId", async (req, res) => {
 
   try {
     // Check user exists
-    const [[user]] = await promisePool.query(
+    const [[user]] = await pool.query(
       "SELECT id FROM users WHERE id = ? LIMIT 1",
       [userId]
     );
@@ -247,7 +247,7 @@ router.get("/user/:userId", async (req, res) => {
       return res.status(404).json({ msg: "User not found" });
     }
 
-    const [reviews] = await promisePool.query(
+    const [reviews] = await pool.query(
       `
       SELECT rating, comment, reviewee_role, created_at
       FROM reviews
