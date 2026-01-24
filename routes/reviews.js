@@ -1,7 +1,10 @@
 const express = require("express");
 const router = express.Router();
-const promisePool = require("../config/db");
-const authenticateToken = require("../middleware/authenticateToken");
+const pool = require("../db/connection.js");
+const authenticateToken = require("../middleware/auth.js");
+const upload = require("../middleware/upload.js");
+const sendPushNotification = require("../utils/pushNotification.js");
+const { promisePool } = require("../db/connection.js");
 
 /**
  * POST /api/reviews
@@ -227,7 +230,6 @@ router.get("/me", authenticateToken, async (req, res) => {
   }
 });
 
-
 /**
  * GET /api/reviews/user/:userId
  * Get ratings of any user (public profile)
@@ -268,9 +270,5 @@ router.get("/user/:userId", async (req, res) => {
     });
   }
 });
-
-
-
-
 
 module.exports = router;
