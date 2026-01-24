@@ -235,9 +235,17 @@ router.get("/me", authenticateToken, async (req, res) => {
  */
 router.get("/user/:userId", async (req, res) => {
   const { userId } = req.params;
+  const { role } = req.query; // RIDER | PASSENGER
+
+  // 🚫 Role is required
+  if (!role || !["RIDER", "PASSENGER"].includes(role)) {
+    return res.status(400).json({
+      msg: "role is required and must be RIDER or PASSENGER",
+    });
+  }
 
   try {
-    // Check user exists
+    // 1️⃣ Check user exists
     const [[user]] = await pool.query(
       "SELECT id FROM users WHERE id = ? LIMIT 1",
       [userId]
@@ -247,24 +255,28 @@ router.get("/user/:userId", async (req, res) => {
       return res.status(404).json({ msg: "User not found" });
     }
 
+    // 2️⃣ Fetch reviews based on role
     const [reviews] = await pool.query(
       `
-      SELECT rating, comment, reviewee_role, created_at
+      SELECT rating, comment, created_at
       FROM reviews
       WHERE reviewee_id = ?
+        AND reviewee_role = ?
       ORDER BY created_at DESC
       `,
-      [userId]
+      [userId, role]
     );
 
     res.json({
       user_id: userId,
+      role,
+      total_reviews: reviews.length,
       reviews,
     });
   } catch (err) {
     console.error(err);
     res.status(500).json({
-      msg: "Failed to fetch user reviews",
+      msg: "Failed to fetch reviews",
       error: err.message,
     });
   }
