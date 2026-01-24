@@ -216,9 +216,17 @@ router.get("/user/:userId", async (req, res) => {
   const { userId } = req.params;
   const { role } = req.query; // RIDER | PASSENGER
 
-  if (!role || !["RIDER", "PASSENGER"].includes(role)) {
+  if (!role) {
     return res.status(400).json({
-      msg: "role is required and must be RIDER or PASSENGER",
+      msg: "role is required",
+    });
+  }
+
+  role = role.toString().trim().toUpperCase();
+
+  if (!["RIDER", "PASSENGER"].includes(role)) {
+    return res.status(400).json({
+      msg: "role must be RIDER or PASSENGER",
     });
   }
 
