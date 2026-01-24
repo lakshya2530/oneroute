@@ -57,7 +57,7 @@ router.post("/", authenticateToken, async (req, res) => {
         SELECT passenger_id
         FROM ride_requests
         WHERE ride_id = ?
-          AND status = 'accepted'
+          AND status = 'completed'
         LIMIT 1
         `,
         [ride_id]
@@ -80,7 +80,7 @@ router.post("/", authenticateToken, async (req, res) => {
         FROM ride_requests
         WHERE ride_id = ?
           AND passenger_id = ?
-          AND status = 'accepted'
+          AND status = 'completed'
         LIMIT 1
         `,
         [ride_id, userId]
