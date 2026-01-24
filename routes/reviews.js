@@ -20,7 +20,7 @@ router.post("/", authenticateToken, async (req, res) => {
 
   try {
     // 1️⃣ Get user ID from phone
-    const [[user]] = await promisePool.query(
+    const [[user]] = await pool.query(
       "SELECT id FROM users WHERE phone = ? LIMIT 1",
       [phone]
     );
@@ -32,7 +32,7 @@ router.post("/", authenticateToken, async (req, res) => {
     const userId = user.id;
 
     // 2️⃣ Get ride
-    const [[ride]] = await promisePool.query(
+    const [[ride]] = await pool.query(
       "SELECT id, user_id, ride_status FROM rides WHERE id = ? LIMIT 1",
       [ride_id]
     );
@@ -42,30 +42,29 @@ router.post("/", authenticateToken, async (req, res) => {
     }
 
     if (ride.ride_status !== "completed") {
-      return res.status(400).json({
-        msg: "Ride not completed yet",
-      });
+      return res.status(400).json({ msg: "Ride not completed yet" });
     }
 
     let reviewerRole, revieweeRole, revieweeId;
 
-    // 3️⃣ If user is RIDER (ride owner)
+    // 3️⃣ User is RIDER (ride owner)
     if (Number(ride.user_id) === Number(userId)) {
       reviewerRole = "RIDER";
       revieweeRole = "PASSENGER";
 
-      const [[passenger]] = await promisePool.query(
-        `SELECT passenger_id
-         FROM ride_requests
-         WHERE ride_id = ? AND status = 'accepted'
-         LIMIT 1`,
+      const [[passenger]] = await pool.query(
+        `
+        SELECT passenger_id
+        FROM ride_requests
+        WHERE ride_id = ?
+          AND status = 'accepted'
+        LIMIT 1
+        `,
         [ride_id]
       );
 
       if (!passenger) {
-        return res.status(400).json({
-          msg: "No accepted passenger found",
-        });
+        return res.status(400).json({ msg: "No accepted passenger found" });
       }
 
       revieweeId = passenger.passenger_id;
@@ -75,13 +74,15 @@ router.post("/", authenticateToken, async (req, res) => {
       reviewerRole = "PASSENGER";
       revieweeRole = "RIDER";
 
-      const [[request]] = await promisePool.query(
-        `SELECT id
-         FROM ride_requests
-         WHERE ride_id = ?
-           AND passenger_id = ?
-           AND status = 'accepted'
-         LIMIT 1`,
+      const [[request]] = await pool.query(
+        `
+        SELECT id
+        FROM ride_requests
+        WHERE ride_id = ?
+          AND passenger_id = ?
+          AND status = 'accepted'
+        LIMIT 1
+        `,
         [ride_id, userId]
       );
 
@@ -94,35 +95,35 @@ router.post("/", authenticateToken, async (req, res) => {
       revieweeId = ride.user_id;
     }
 
-    // 🚫 Prevent self review (extra safety)
+    // 🚫 Prevent self review
     if (Number(userId) === Number(revieweeId)) {
-      return res.status(400).json({
-        msg: "You cannot review yourself",
-      });
+      return res.status(400).json({ msg: "You cannot review yourself" });
     }
 
     // 5️⃣ Prevent duplicate review
-    const [[existing]] = await promisePool.query(
-      `SELECT id
-       FROM reviews
-       WHERE ride_id = ?
-         AND reviewer_id = ?
-         AND reviewer_role = ?
-       LIMIT 1`,
+    const [[existing]] = await pool.query(
+      `
+      SELECT id
+      FROM reviews
+      WHERE ride_id = ?
+        AND reviewer_id = ?
+        AND reviewer_role = ?
+      LIMIT 1
+      `,
       [ride_id, userId, reviewerRole]
     );
 
     if (existing) {
-      return res.status(409).json({
-        msg: "Review already submitted",
-      });
+      return res.status(409).json({ msg: "Review already submitted" });
     }
 
     // 6️⃣ Insert review
-    await promisePool.query(
-      `INSERT INTO reviews
-       (ride_id, reviewer_id, reviewer_role, reviewee_id, reviewee_role, rating, comment)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    await pool.query(
+      `
+      INSERT INTO reviews
+      (ride_id, reviewer_id, reviewer_role, reviewee_id, reviewee_role, rating, comment)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
       [
         ride_id,
         userId,
@@ -134,9 +135,7 @@ router.post("/", authenticateToken, async (req, res) => {
       ]
     );
 
-    res.status(201).json({
-      msg: "Review submitted successfully",
-    });
+    res.status(201).json({ msg: "Review submitted successfully" });
   } catch (err) {
     console.error(err);
     res.status(500).json({
