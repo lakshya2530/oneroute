@@ -2,14 +2,9 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
-const upload = require("../middleware/upload.js");
-const sendPushNotification = require("../utils/pushNotification.js");
-const { promisePool } = require("../db/connection.js");
 
-/**
- * POST /api/reviews
- * Create review (RIDER ↔ PASSENGER)
- */
+//  Create review (RIDER ↔ PASSENGER)
+
 router.post("/", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
   const { ride_id, rating, comment } = req.body;
@@ -19,7 +14,6 @@ router.post("/", authenticateToken, async (req, res) => {
   }
 
   try {
-    // 1️⃣ Get user ID from phone
     const [[user]] = await pool.query(
       "SELECT id FROM users WHERE phone = ? LIMIT 1",
       [phone]
@@ -31,7 +25,6 @@ router.post("/", authenticateToken, async (req, res) => {
 
     const userId = user.id;
 
-    // 2️⃣ Get ride
     const [[ride]] = await pool.query(
       "SELECT id, user_id, ride_status FROM rides WHERE id = ? LIMIT 1",
       [ride_id]
@@ -47,7 +40,6 @@ router.post("/", authenticateToken, async (req, res) => {
 
     let reviewerRole, revieweeRole, revieweeId;
 
-    // 3️⃣ User is RIDER (ride owner)
     if (Number(ride.user_id) === Number(userId)) {
       reviewerRole = "RIDER";
       revieweeRole = "PASSENGER";
@@ -68,9 +60,7 @@ router.post("/", authenticateToken, async (req, res) => {
       }
 
       revieweeId = passenger.passenger_id;
-    }
-    // 4️⃣ User is PASSENGER
-    else {
+    } else {
       reviewerRole = "PASSENGER";
       revieweeRole = "RIDER";
 
@@ -95,12 +85,10 @@ router.post("/", authenticateToken, async (req, res) => {
       revieweeId = ride.user_id;
     }
 
-    // 🚫 Prevent self review
     if (Number(userId) === Number(revieweeId)) {
       return res.status(400).json({ msg: "You cannot review yourself" });
     }
 
-    // 5️⃣ Prevent duplicate review
     const [[existing]] = await pool.query(
       `
       SELECT id
@@ -117,7 +105,6 @@ router.post("/", authenticateToken, async (req, res) => {
       return res.status(409).json({ msg: "Review already submitted" });
     }
 
-    // 6️⃣ Insert review
     await pool.query(
       `
       INSERT INTO reviews
@@ -145,15 +132,12 @@ router.post("/", authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * GET /api/reviews/me
- * Get my ratings as RIDER & PASSENGER
- */
+//   Get my ratings as RIDER & PASSENGER
+
 router.get("/me", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
 
   try {
-    // 1️⃣ Get user ID
     const [[user]] = await pool.query(
       "SELECT id FROM users WHERE phone = ? LIMIT 1",
       [phone]
@@ -165,7 +149,6 @@ router.get("/me", authenticateToken, async (req, res) => {
 
     const userId = user.id;
 
-    // 2️⃣ Reviews received as RIDER
     const [asRider] = await pool.query(
       `
       SELECT rating, comment, created_at
@@ -177,7 +160,6 @@ router.get("/me", authenticateToken, async (req, res) => {
       [userId]
     );
 
-    // 3️⃣ Reviews received as PASSENGER
     const [asPassenger] = await pool.query(
       `
       SELECT rating, comment, created_at
@@ -189,7 +171,6 @@ router.get("/me", authenticateToken, async (req, res) => {
       [userId]
     );
 
-    // 4️⃣ Averages
     const [[riderAvg]] = await pool.query(
       `
       SELECT ROUND(AVG(rating),1) AS avg_rating
@@ -229,15 +210,12 @@ router.get("/me", authenticateToken, async (req, res) => {
   }
 });
 
-/**
- * GET /api/reviews/user/:userId
- * Get ratings of any user (public profile)
- */
+//   Get ratings of any user (public profile)
+
 router.get("/user/:userId", async (req, res) => {
   const { userId } = req.params;
   const { role } = req.query; // RIDER | PASSENGER
 
-  // 🚫 Role is required
   if (!role || !["RIDER", "PASSENGER"].includes(role)) {
     return res.status(400).json({
       msg: "role is required and must be RIDER or PASSENGER",
@@ -245,7 +223,6 @@ router.get("/user/:userId", async (req, res) => {
   }
 
   try {
-    // 1️⃣ Check user exists
     const [[user]] = await pool.query(
       "SELECT id FROM users WHERE id = ? LIMIT 1",
       [userId]
@@ -255,7 +232,6 @@ router.get("/user/:userId", async (req, res) => {
       return res.status(404).json({ msg: "User not found" });
     }
 
-    // 2️⃣ Fetch reviews based on role
     const [reviews] = await pool.query(
       `
       SELECT rating, comment, created_at
