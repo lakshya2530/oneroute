@@ -817,92 +817,220 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
 });
 
 // ------------ Cancel the Requested Ride ------------------ (By Customer)
-router.get(
-  "/ride-requests/:rideId/cancel",
+{
+  /*
+  
+  router.get(
+    "/ride-requests/:rideId/cancel",
+    authenticateToken,
+    async (req, res) => {
+      const requestId = req.params.rideId;
+      const phone = req.user.phone;
+  
+      try {
+        const conn = await pool.getConnection();
+  
+        //  Get passenger + request in single query
+        const [[reqData]] = await conn.query(
+          `
+        SELECT rr.id, rr.status, rr.passenger_id, rr.no_of_seats,
+               r.id AS ride_id, r.seats_available, r.user_id AS owner_id,
+               u.fullname, u2.fcm_token
+        FROM ride_requests rr
+        JOIN rides r ON r.id = rr.ride_id
+        JOIN users u ON u.id = rr.passenger_id
+        JOIN users u2 ON u2.id = r.user_id
+        WHERE rr.id = ? AND u.phone = ?
+      `,
+          [requestId, phone]
+        );
+  
+        conn.release();
+  
+        if (!reqData) {
+          return res
+            .status(404)
+            .json({ msg: "Request not found or access denied" });
+        }
+  
+        //  Quick status checks
+        if (reqData.status === "rejected" || reqData.status === "cancelled") {
+          return res.status(400).json({ msg: "Cannot cancel this status" });
+        }
+  
+        //  Update (simple single query - no transaction)
+        const updateConn = await pool.getConnection();
+        try {
+          // Restore seats if accepted
+          if (reqData.status === "accepted") {
+            await updateConn.query(
+              "UPDATE rides SET seats_available = seats_available + ? WHERE id = ?",
+              [reqData.no_of_seats, reqData.ride_id]
+            );
+          }
+  
+          // Cancel request
+          await updateConn.query(
+            "UPDATE ride_requests SET status = 'cancelled' WHERE id = ?",
+            [requestId]
+          );
+          updateConn.release();
+  
+          //  Fire-and-forget notification
+          if (reqData.fcm_token) {
+            (async () => {
+              try {
+                await sendPushNotification(
+                  reqData.fcm_token,
+                  "Ride Request Cancelled",
+                  `${reqData.fullname} cancelled their request`,
+                  {
+                    type: "ride_request_cancelled",
+                    request_id: requestId.toString(),
+                    ride_id: reqData.ride_id.toString(),
+                    action: "view_requests",
+                  },
+                  reqData.owner_id.toString()
+                );
+              } catch (notifyErr) {
+                console.error("Notify failed:", notifyErr);
+              }
+            })();
+          }
+  
+          res.json({ success: true, msg: "Request cancelled successfully" });
+        } catch (updateErr) {
+          updateConn.release();
+          throw updateErr;
+        }
+      } catch (err) {
+        console.error("Cancel error:", err);
+        res.status(500).json({ msg: "Failed to cancel", error: err.message });
+      }
+    }
+  );
+  */
+}
+
+// ------------ Cancel the Requested Ride (By Customer) ------------
+
+router.post(
+  "/ride-requests/:requestId/cancel",
   authenticateToken,
   async (req, res) => {
-    const requestId = req.params.rideId;
+    const requestId = req.params.requestId;
     const phone = req.user.phone;
+    const { cancel_reason } = req.body;
+
+    if (!cancel_reason || cancel_reason.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        msg: "Cancellation reason is required",
+      });
+    }
+
+    let conn;
 
     try {
-      const conn = await pool.getConnection();
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
 
-      //  Get passenger + request in single query
+      // 1️⃣ Get request + ride + owner
       const [[reqData]] = await conn.query(
         `
-      SELECT rr.id, rr.status, rr.passenger_id, rr.no_of_seats,
-             r.id AS ride_id, r.seats_available, r.user_id AS owner_id,
-             u.fullname, u2.fcm_token
-      FROM ride_requests rr
-      JOIN rides r ON r.id = rr.ride_id
-      JOIN users u ON u.id = rr.passenger_id
-      JOIN users u2 ON u2.id = r.user_id
-      WHERE rr.id = ? AND u.phone = ?
-    `,
+        SELECT rr.id, rr.status, rr.passenger_id, rr.no_of_seats,
+               r.id AS ride_id, r.seats_available, r.ride_status,
+               r.user_id AS owner_id,
+               u.fullname,
+               owner.fcm_token
+        FROM ride_requests rr
+        JOIN rides r ON r.id = rr.ride_id
+        JOIN users u ON u.id = rr.passenger_id
+        JOIN users owner ON owner.id = r.user_id
+        WHERE rr.id = ? AND u.phone = ?
+        FOR UPDATE
+        `,
         [requestId, phone]
       );
 
-      conn.release();
-
       if (!reqData) {
-        return res
-          .status(404)
-          .json({ msg: "Request not found or access denied" });
+        await conn.rollback();
+        return res.status(404).json({
+          success: false,
+          msg: "Request not found or access denied",
+        });
       }
 
-      //  Quick status checks
       if (reqData.status === "rejected" || reqData.status === "cancelled") {
-        return res.status(400).json({ msg: "Cannot cancel this status" });
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          msg: "Cannot cancel this request",
+        });
       }
 
-      //  Update (simple single query - no transaction)
-      const updateConn = await pool.getConnection();
-      try {
-        // Restore seats if accepted
-        if (reqData.status === "accepted") {
-          await updateConn.query(
-            "UPDATE rides SET seats_available = seats_available + ? WHERE id = ?",
-            [reqData.no_of_seats, reqData.ride_id]
-          );
-        }
+      // 2️⃣ If accepted → restore seats
+      if (reqData.status === "accepted") {
+        const newSeats = reqData.seats_available + reqData.no_of_seats;
 
-        // Cancel request
-        await updateConn.query(
-          "UPDATE ride_requests SET status = 'cancelled' WHERE id = ?",
-          [requestId]
+        await conn.query(
+          "UPDATE rides SET seats_available = ?, ride_status = 'open' WHERE id = ?",
+          [newSeats, reqData.ride_id]
         );
-        updateConn.release();
-
-        //  Fire-and-forget notification
-        if (reqData.fcm_token) {
-          (async () => {
-            try {
-              await sendPushNotification(
-                reqData.fcm_token,
-                "Ride Request Cancelled",
-                `${reqData.fullname} cancelled their request`,
-                {
-                  type: "ride_request_cancelled",
-                  request_id: requestId.toString(),
-                  ride_id: reqData.ride_id.toString(),
-                  action: "view_requests",
-                },
-                reqData.owner_id.toString()
-              );
-            } catch (notifyErr) {
-              console.error("Notify failed:", notifyErr);
-            }
-          })();
-        }
-
-        res.json({ success: true, msg: "Request cancelled successfully" });
-      } catch (updateErr) {
-        updateConn.release();
-        throw updateErr;
       }
+
+      // 3️⃣ Update request
+      await conn.query(
+        `
+        UPDATE ride_requests 
+        SET status = 'cancelled',
+            cancel_reason = ?,
+            cancelled_at = NOW()
+        WHERE id = ?
+        `,
+        [cancel_reason, requestId]
+      );
+
+      await conn.commit();
+
+      // 4️⃣ Fire-and-forget notification
+      if (reqData.fcm_token) {
+        (async () => {
+          try {
+            await sendPushNotification(
+              reqData.fcm_token,
+              "Ride Cancelled",
+              `${reqData.fullname} cancelled their ride request`,
+              {
+                type: "ride_request_cancelled",
+                request_id: requestId.toString(),
+                ride_id: reqData.ride_id.toString(),
+                cancel_reason,
+                action: "view_requests",
+              },
+              reqData.owner_id.toString()
+            );
+          } catch (err) {
+            console.error("Notification error:", err);
+          }
+        })();
+      }
+
+      return res.json({
+        success: true,
+        msg: "Ride request cancelled successfully",
+      });
     } catch (err) {
+      if (conn) await conn.rollback();
       console.error("Cancel error:", err);
-      res.status(500).json({ msg: "Failed to cancel", error: err.message });
+
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to cancel ride",
+        error: err.message,
+      });
+    } finally {
+      if (conn) conn.release();
     }
   }
 );
