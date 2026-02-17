@@ -655,6 +655,21 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
     if (!user) return res.status(404).json({ msg: "User not found" });
     const passenger_id = user.id;
 
+    // Check if already requested this ride
+    const [[existingRequest]] = await conn.query(
+      `SELECT id, status 
+       FROM ride_requests 
+       WHERE ride_id = ? AND passenger_id = ?`,
+      [ride_id, passenger_id]
+    );
+
+    if (existingRequest) {
+      return res.status(400).json({
+        success: false,
+        msg: `You have already sent a request for this ride (Status: ${existingRequest.status})`,
+      });
+    }
+
     // Get ride
     const [[ride]] = await conn.query("SELECT * FROM rides WHERE id = ?", [
       ride_id,
@@ -925,7 +940,11 @@ router.post(
                r.user_id AS owner_id, 
                r.seats_available, 
                r.ride_status, 
-               r.id AS ride_id
+               r.id AS ride_id,
+               r.pickup_location,
+               r.drop_location,
+               r.ride_date,
+               r.ride_time
         FROM ride_requests rr
         JOIN rides r ON rr.ride_id = r.id
         WHERE rr.id=?
@@ -995,10 +1014,14 @@ router.post(
           await sendPushNotification(
             passenger.fcm_token,
             "🎉 Ride Confirmed!",
-            `${owner.fullname} accepted your ride request!`,
+            `${owner.fullname} accepted your ride from ${request.pickup_location} to ${request.drop_location} on ${request.ride_date}.`,
             {
               type: "ride_accepted",
               ride_id: request.ride_id,
+              pickup_location: request.pickup_location,
+              drop_location: request.drop_location,
+              ride_date: request.ride_date,
+              ride_time: request.ride_time,
               pickup_otp: pickupOTP,
               drop_otp: dropOTP,
               action: "view_ride",
@@ -1009,6 +1032,14 @@ router.post(
 
         return res.json({
           msg: "Ride accepted",
+          ride: {
+            id: request.ride_id,
+            pickup_location: request.pickup_location,
+            drop_location: request.drop_location,
+            ride_date: request.ride_date,
+            ride_time: request.ride_time,
+            seats_remaining: remainingSeats,
+          },
           pickupOTP,
           dropOTP,
         });
@@ -1045,7 +1076,7 @@ router.post(
           await sendPushNotification(
             passenger.fcm_token,
             "❌ Ride Request Cancelled",
-            "Your ride request has been cancelled by the owner.",
+            `${owner.fullname} rejected your ride from ${request.pickup_location} to ${request.drop_location}.`,
             {
               type: "ride_rejected",
               ride_id: request.ride_id,
