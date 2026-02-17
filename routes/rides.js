@@ -9,39 +9,36 @@ const { promisePool } = require("../db/connection.js");
 
 const DEFAULT_OTP = "1234";
 
-router.post(
-  "/:rideId/live-location",
-  authenticateToken,
-  async (req, res) => {
-    const { rideId } = req.params;
-    const { latitude, longitude, user_type } = req.body;
-    const phone = req.user.phone;
+router.post("/:rideId/live-location", authenticateToken, async (req, res) => {
+  const { rideId } = req.params;
+  const { latitude, longitude, user_type } = req.body;
+  const phone = req.user.phone;
 
-    // Validation
-    if (!latitude || !longitude) {
-      return res.status(400).json({ msg: "Latitude & longitude required" });
+  // Validation
+  if (!latitude || !longitude) {
+    return res.status(400).json({ msg: "Latitude & longitude required" });
+  }
+
+  if (!["driver", "passenger"].includes(user_type)) {
+    return res.status(400).json({ msg: "Invalid user_type" });
+  }
+
+  try {
+    // 1️⃣ Get user ID from phone
+    const [[user]] = await promisePool.query(
+      "SELECT id FROM users WHERE phone = ? LIMIT 1",
+      [phone]
+    );
+
+    if (!user) {
+      return res.status(404).json({ msg: "User not found" });
     }
 
-    if (!["driver", "passenger"].includes(user_type)) {
-      return res.status(400).json({ msg: "Invalid user_type" });
-    }
+    const userId = user.id;
 
-    try {
-      // 1️⃣ Get user ID from phone
-      const [[user]] = await promisePool.query(
-        "SELECT id FROM users WHERE phone = ? LIMIT 1",
-        [phone]
-      );
-
-      if (!user) {
-        return res.status(404).json({ msg: "User not found" });
-      }
-
-      const userId = user.id;
-
-      // 2️⃣ Insert / update live location
-      await promisePool.query(
-        `
+    // 2️⃣ Insert / update live location
+    await promisePool.query(
+      `
         INSERT INTO ride_live_locations
           (ride_id, user_id, user_type, latitude, longitude)
         VALUES (?, ?, ?, ?, ?)
@@ -50,67 +47,59 @@ router.post(
           longitude = VALUES(longitude),
           updated_at = NOW()
         `,
-        [rideId, userId, user_type, latitude, longitude]
-      );
+      [rideId, userId, user_type, latitude, longitude]
+    );
 
-      return res.json({
-        msg: "Location updated",
-        user_type,
-      });
-
-    } catch (err) {
-      console.error(err);
-      return res.status(500).json({
-        msg: "Failed to update location",
-        error: err.message,
-      });
-    }
+    return res.json({
+      msg: "Location updated",
+      user_type,
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      msg: "Failed to update location",
+      error: err.message,
+    });
   }
-);
+});
 
+router.get("/:rideId/live-location", authenticateToken, async (req, res) => {
+  const { rideId } = req.params;
+  const { user_type } = req.query;
 
-router.get(
-  "/:rideId/live-location",
-  authenticateToken,
-  async (req, res) => {
-    const { rideId } = req.params;
-    const { user_type } = req.query;
+  if (!["driver", "passenger"].includes(user_type)) {
+    return res.status(400).json({ msg: "Invalid user_type" });
+  }
 
-    if (!["driver", "passenger"].includes(user_type)) {
-      return res.status(400).json({ msg: "Invalid user_type" });
-    }
-
-    try {
-      const [rows] = await promisePool.query(
-        `
+  try {
+    const [rows] = await promisePool.query(
+      `
         SELECT latitude, longitude, updated_at
         FROM ride_live_locations
         WHERE ride_id=? AND user_type=?
         `,
-        [rideId, user_type]
-      );
+      [rideId, user_type]
+    );
 
-      if (!rows.length) {
-        return res.status(404).json({
-          msg: `${user_type} location not found`,
-        });
-      }
-
-      return res.json({
-        user_type,
-        latitude: rows[0].latitude,
-        longitude: rows[0].longitude,
-        last_updated: rows[0].updated_at,
-      });
-    } catch (err) {
-      return res.status(500).json({
-        msg: "Failed to fetch location",
-        error: err.message,
+    if (!rows.length) {
+      return res.status(404).json({
+        msg: `${user_type} location not found`,
       });
     }
-  }
-);
 
+    return res.json({
+      user_type,
+      latitude: rows[0].latitude,
+      longitude: rows[0].longitude,
+      last_updated: rows[0].updated_at,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      msg: "Failed to fetch location",
+      error: err.message,
+    });
+  }
+});
 
 // --- Create Ride ---
 router.post("/", authenticateToken, upload.none(), async (req, res) => {
@@ -203,9 +192,10 @@ router.get("/my-all-rides", authenticateToken, async (req, res) => {
     }
     const user = userRows[0];
 
-    const [rides] = await conn.query("SELECT * FROM rides WHERE user_id = ?", [
-      user.id,
-    ]);
+    const [rides] = await conn.query(
+      "SELECT * FROM rides WHERE user_id = ? ORDER BY created_at DESC",
+      [user.id]
+    );
 
     res.json({
       success: true,
@@ -253,7 +243,7 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
   FROM ride_requests rr
   JOIN rides r ON rr.ride_id = r.id
   JOIN users u ON rr.passenger_id = u.id
-  WHERE rr.owner_id = ? AND rr.status = 'accepted'
+  WHERE rr.owner_id = ? AND rr.status = 'accepted' AND r.ride_status != 'completed' ORDER BY rr.created_at DESC
 `,
       [ownerId]
     );
@@ -325,8 +315,16 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
 
   // 🔍 Drop location search
   if (search) {
-    sql += ` AND r.drop_location LIKE ?`;
-    params.push(`%${search}%`);
+    const normalizedSearch = search.trim();
+
+    sql += ` 
+    AND (
+      REPLACE(r.drop_location, '+', ' ') LIKE ?
+      OR REPLACE(r.pickup_location, '+', ' ') LIKE ?
+    )
+  `;
+
+    params.push(`%${normalizedSearch}%`, `%${normalizedSearch}%`);
   }
 
   // ✅ EXACT DATE FILTER (THIS IS THE KEY FIX)
@@ -603,6 +601,7 @@ router.get("/my-all-ride-requests", authenticateToken, async (req, res) => {
       FROM ride_requests rr
       LEFT JOIN rides r ON rr.ride_id = r.id
       WHERE rr.passenger_id = ?
+      AND r.ride_status != 'completed'
     `;
 
     const params = [userId];
@@ -774,6 +773,7 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
       JOIN users u ON rr.passenger_id = u.id
       WHERE rr.ride_id = ?
         AND rr.status IN ('pending', 'accepted')
+        AND r.ride_status != 'completed'
       ORDER BY rr.created_at DESC
       `,
       [rideId]
@@ -1412,6 +1412,38 @@ router.post("/:rideId/verify-drop", authenticateToken, async (req, res) => {
     res
       .status(500)
       .json({ msg: "Failed to verify drop OTP", error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
+// Ride History
+router.get("/ride-history", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const conn = await pool.getConnection();
+
+  try {
+    const [[user]] = await conn.query("SELECT id FROM users WHERE phone=?", [
+      phone,
+    ]);
+
+    const [history] = await conn.query(
+      `
+      SELECT r.*
+      FROM rides r
+      LEFT JOIN ride_requests rr ON rr.ride_id = r.id
+      WHERE 
+        (r.user_id = ? OR rr.passenger_id = ?)
+        AND r.ride_status = 'completed'
+      GROUP BY r.id
+      ORDER BY r.updated_at DESC
+    `,
+      [user.id, user.id]
+    );
+
+    res.json({ success: true, history });
+  } catch (err) {
+    res.status(500).json({ msg: "Failed to fetch history" });
   } finally {
     conn.release();
   }

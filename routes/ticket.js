@@ -2,67 +2,91 @@ const express = require("express");
 const router = express.Router();
 const pool = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
+const upload = require("../middleware/upload.js");
 
 // POST /api/user/tickets  (user creates ticket)
-router.post("/raise", authenticateToken, async (req, res) => {
-  const { phone } = req.user;
-  const { title, description } = req.body;
+router.post(
+  "/raise",
+  authenticateToken,
+  upload.single("image"),
+  async (req, res) => {
+    const { phone } = req.user;
+    const { title, description } = req.body;
 
-  if (!title || !description) {
-    return res.status(400).json({
-      success: false,
-      message: "Title and description are required",
-    });
-  }
-
-  const conn = await pool.getConnection();
-  try {
-    // 1) Get current user
-    const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
-      phone,
-    ]);
-    if (!user) {
-      return res.status(404).json({
+    // 🔹 Basic validation
+    if (!title || !description) {
+      return res.status(400).json({
         success: false,
-        message: "User not found",
+        message: "Title and description are required",
       });
     }
 
-    // 2) Generate a simple ticket_id string (optional)
-    const ticketIdStr = `T-${Date.now()}`;
+    // 🔹 Minimum 50 characters validation
+    if (description.trim().length < 50) {
+      return res.status(400).json({
+        success: false,
+        message: "Description must be at least 50 characters long",
+      });
+    }
 
-    // 3) Insert ticket
-    const [result] = await conn.query(
-      `
-      INSERT INTO tickets (ticket_id, title, description, status, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, NOW(), NOW())
-      `,
-      [ticketIdStr, title, description, "open", user.id]
-    );
+    const conn = await pool.getConnection();
 
-    return res.status(201).json({
-      success: true,
-      message: "Ticket created successfully",
-      data: {
-        id: result.insertId,
-        ticket_id: ticketIdStr,
-        title,
-        description,
-        status: "open",
-        created_by: user.id,
-      },
-    });
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create ticket",
-      error: err.message,
-    });
-  } finally {
-    conn.release();
+    try {
+      // 1️⃣ Get user
+      const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+        phone,
+      ]);
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const ticketIdStr = `T-${Date.now()}`;
+
+      // 2️⃣ Insert ticket with image
+      const [result] = await conn.query(
+        `
+        INSERT INTO tickets 
+        (ticket_id, title, description, image, status, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())
+        `,
+        [
+          ticketIdStr,
+          title,
+          description,
+          req.file ? req.file.path : null,
+          "open",
+          user.id,
+        ]
+      );
+
+      return res.status(201).json({
+        success: true,
+        message: "Ticket created successfully",
+        data: {
+          id: result.insertId,
+          ticket_id: ticketIdStr,
+          title,
+          description,
+          image: req.file ? req.file.path : null,
+          status: "open",
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to create ticket",
+        error: err.message,
+      });
+    } finally {
+      conn.release();
+    }
   }
-});
+);
 
 // GET /api/user/tickets  (tickets created by this user)
 router.get("/", authenticateToken, async (req, res) => {
@@ -100,6 +124,8 @@ router.get("/", authenticateToken, async (req, res) => {
 
     // 3) Group tickets with replies
     const ticketMap = new Map();
+    const baseUrl =
+      process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
 
     for (const r of rows) {
       const tid = r.t_id;
@@ -110,6 +136,7 @@ router.get("/", authenticateToken, async (req, res) => {
           ticket_id: r.ticket_id,
           title: r.title,
           description: r.description,
+          image: r.image ? `${baseUrl}/${r.image}` : null,
           status: r.status,
           created_at: r.created_at,
           updated_at: r.updated_at,
@@ -150,7 +177,7 @@ router.get("/", authenticateToken, async (req, res) => {
 router.delete("/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { phone } = req.user;
-  console.log
+  console.log;
 
   const conn = await pool.getConnection();
   try {
@@ -163,7 +190,7 @@ router.delete("/:id", authenticateToken, async (req, res) => {
     if (!ticket) {
       return res.status(404).json({
         success: false,
-        message: "Ticket not found or access denied"
+        message: "Ticket not found or access denied",
       });
     }
 
@@ -176,20 +203,18 @@ router.delete("/:id", authenticateToken, async (req, res) => {
     return res.json({
       success: true,
       message: "Ticket deleted successfully",
-      deleted_id: id
+      deleted_id: id,
     });
-
   } catch (err) {
     console.error(err);
     return res.status(500).json({
       success: false,
       message: "Failed to delete ticket",
-      error: err.message
+      error: err.message,
     });
   } finally {
     conn.release();
   }
 });
-
 
 module.exports = router;

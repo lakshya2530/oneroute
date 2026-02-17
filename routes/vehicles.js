@@ -96,7 +96,6 @@ router.get("/vehicles", authenticateToken, async (req, res) => {
   }
 });
 
-
 // --- Update Vehicle ---
 router.put(
   "/vehicles/:id",
@@ -109,35 +108,63 @@ router.put(
       req.body;
 
     const conn = await pool.getConnection();
+
     try {
+      // 1️⃣ Validate License Plate
+      if (license_plate && license_plate.length > 10) {
+        return res.status(400).json({
+          msg: "License plate must not exceed 10 characters",
+        });
+      }
+
+      // 2️⃣ Get User
       const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
         phone,
       ]);
+      if (!user) return res.status(404).json({ msg: "User not found" });
 
-      const [result] = await conn.query(
-        `UPDATE vehicles SET vehicle_make=?, vehicle_model=?, vehicle_year=?, license_plate=?, vehicle_image=? 
+      // 3️⃣ Get Existing Vehicle
+      const [[existingVehicle]] = await conn.query(
+        "SELECT * FROM vehicles WHERE id=? AND user_id=?",
+        [id, user.id]
+      );
+
+      if (!existingVehicle) {
+        return res.status(404).json({ msg: "Vehicle not found" });
+      }
+
+      // 4️⃣ Keep old image if new not uploaded
+      const updatedImage = req.file
+        ? req.file.path
+        : existingVehicle.vehicle_image;
+
+      // 5️⃣ Update Vehicle
+      await conn.query(
+        `UPDATE vehicles 
+         SET vehicle_make=?, 
+             vehicle_model=?, 
+             vehicle_year=?, 
+             license_plate=?, 
+             vehicle_image=? 
          WHERE id=? AND user_id=?`,
         [
-          vehicle_make,
-          vehicle_model,
-          vehicle_year,
-          license_plate,
-          req.file?.path || null,
+          vehicle_make || existingVehicle.vehicle_make,
+          vehicle_model || existingVehicle.vehicle_model,
+          vehicle_year || existingVehicle.vehicle_year,
+          license_plate || existingVehicle.license_plate,
+          updatedImage,
           id,
           user.id,
         ]
       );
 
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ msg: "Vehicle not found" });
-      }
-
       res.json({ msg: "Vehicle updated successfully" });
     } catch (err) {
       console.error(err);
-      res
-        .status(500)
-        .json({ msg: "Failed to update vehicle", error: err.message });
+      res.status(500).json({
+        msg: "Failed to update vehicle",
+        error: err.message,
+      });
     } finally {
       conn.release();
     }
