@@ -193,7 +193,7 @@ router.get("/my-all-rides", authenticateToken, async (req, res) => {
     const user = userRows[0];
 
     const [rides] = await conn.query(
-      "SELECT * FROM rides WHERE user_id = ? ORDER BY created_at DESC",
+      "SELECT * FROM rides WHERE user_id = ? AND ride_date >= CURDATE() ORDER BY created_at DESC",
       [user.id]
     );
 
