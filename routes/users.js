@@ -16,6 +16,17 @@ router.post("/send-otp", async (req, res) => {
   try {
     const conn = await pool.getConnection();
     try {
+      // 🔹 Check if user exists and is soft deleted
+      const [userRows] = await conn.query(
+        "SELECT account_active FROM users WHERE phone = ?",
+        [phone]
+      );
+
+      if (userRows.length > 0 && userRows[0].account_active === 0) {
+        return res.status(403).json({
+          msg: "Your account has been deactivated. Please contact support.",
+        });
+      }
       // Remove any existing OTP for this phone
       await conn.query("DELETE FROM otps WHERE phone = ?", [phone]);
 
@@ -132,11 +143,11 @@ router.post("/verify-otp", async (req, res) => {
         // Existing user → update verification if needed
         const user = userRows[0];
 
-        if (user.account_active === 0) {
-          return res.status(403).json({
-            msg: "Your account has been deactivated. Please contact support.",
-          });
-        }
+        // if (user.account_active === 0) {
+        //   return res.status(403).json({
+        //     msg: "Your account has been deactivated. Please contact support.",
+        //   });
+        // }
 
         if (!user.verified) {
           await conn.query("UPDATE users SET verified = ? WHERE phone = ?", [
