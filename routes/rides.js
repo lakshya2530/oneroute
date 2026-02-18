@@ -1593,7 +1593,7 @@ router.get("/ride-history", authenticateToken, async (req, res) => {
       LEFT JOIN ride_requests rr ON rr.ride_id = r.id
       WHERE 
         (r.user_id = ? OR rr.passenger_id = ?)
-        AND r.ride_status = 'completed'
+         AND r.ride_status IN ('completed', 'cancelled', 'rejected')
       GROUP BY r.id
       ORDER BY r.updated_at DESC
     `,

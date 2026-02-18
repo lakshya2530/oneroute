@@ -115,8 +115,8 @@ router.post("/verify-otp", async (req, res) => {
       if (userRows.length === 0) {
         // First-time user: create user
         await conn.query(
-          "INSERT INTO users (phone, verified, profile_completed) VALUES (?, ?, ?)",
-          [phone, true, false]
+          "INSERT INTO users (phone, verified, profile_completed, account_active) VALUES (?, ?, ?)",
+          [phone, true, false, 1]
         );
 
         // Generate token for new user so they can authenticate during profile setup
@@ -130,7 +130,15 @@ router.post("/verify-otp", async (req, res) => {
         });
       } else {
         // Existing user → update verification if needed
-        if (!userRows[0].verified) {
+        const user = userRows[0];
+
+        if (user.account_active === 0) {
+          return res.status(403).json({
+            msg: "Your account has been deactivated. Please contact support.",
+          });
+        }
+
+        if (!user.verified) {
           await conn.query("UPDATE users SET verified = ? WHERE phone = ?", [
             true,
             phone,
@@ -138,7 +146,7 @@ router.post("/verify-otp", async (req, res) => {
         }
 
         // Profile completed?
-        if (userRows[0].profile_completed) {
+        if (user.profile_completed) {
           // Already complete → issue final JWT
           const token = jwt.sign({ phone }, process.env.JWT_SECRET, {
             expiresIn: "1d",
@@ -464,7 +472,6 @@ router.get("/notifications", authenticateToken, async (req, res) => {
     conn.release();
   }
 });
-
 
 // Mark Notification as Read
 router.put("/notifications/read-all", authenticateToken, async (req, res) => {

@@ -108,6 +108,7 @@ router.get("/", authenticateToken, async (req, res) => {
         t.ticket_id,
         t.title,
         t.description,
+        t.image,
         t.status,
         t.created_at,
         t.updated_at,
