@@ -70,6 +70,27 @@ router.post("/:rideId/send", authenticateToken, async (req, res) => {
       [rideId, sender.id, receiverId, message, status]
     );
 
+    // Push notifiction
+    const [[receiver]] = await conn.query(
+      "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+      [receiverId]
+    );
+
+    if (receiver?.fcm_token) {
+      await sendPushNotification(
+        receiver.fcm_token,
+        "New Message",
+        `${sender.fullname || "Someone"}: ${message}`,
+        {
+          type: "chat_message",
+          ride_id: rideId,
+          sender_id: sender.id,
+          action: "open_chat",
+        },
+        receiver.id
+      );
+    }
+
     res.json({ msg: "Message sent." });
   } catch (err) {
     console.error(err);
