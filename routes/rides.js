@@ -549,7 +549,7 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
   }
 });
 
-// --- Get My All Ride Requests (Joined with Ride Details + Filter) ---
+// --- Get My All Ride Requests (with Ride Details + Filter) ---
 router.get("/my-all-ride-requests", authenticateToken, async (req, res) => {
   const { phone } = req.user;
   const { status } = req.query; // optional filter: accepted | pending | rejected | cancelled
@@ -1379,6 +1379,7 @@ router.post(
 // );
 
 //  Verify Pickup OTP (Start Ride)
+
 router.post("/:rideId/verify-pickup", authenticateToken, async (req, res) => {
   const passengerPhone = req.user.phone;
   const { rideId } = req.params;

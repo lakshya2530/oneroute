@@ -22,11 +22,11 @@ router.post("/send-otp", async (req, res) => {
         [phone]
       );
 
-      if (userRows.length > 0 && userRows[0].account_active === 0) {
-        return res.status(403).json({
-          msg: "Your account has been deactivated. Please contact support.",
-        });
-      }
+      // if (userRows.length > 0 && userRows[0].account_active === 0) {
+      //   return res.status(403).json({
+      //     msg: "Your account has been deactivated. Please contact support.",
+      //   });
+      // }
       // Remove any existing OTP for this phone
       await conn.query("DELETE FROM otps WHERE phone = ?", [phone]);
 
