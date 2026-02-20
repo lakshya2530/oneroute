@@ -126,7 +126,7 @@ router.post("/verify-otp", async (req, res) => {
       if (userRows.length === 0) {
         // First-time user: create user
         await conn.query(
-          "INSERT INTO users (phone, verified, profile_completed, account_active) VALUES (?, ?, ?)",
+          "INSERT INTO users (phone, verified, profile_completed, account_active) VALUES (?, ?, ?, ?)",
           [phone, true, false, 1]
         );
 
