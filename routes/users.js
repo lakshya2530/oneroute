@@ -22,11 +22,11 @@ router.post("/send-otp", async (req, res) => {
         [phone]
       );
 
-      // if (userRows.length > 0 && userRows[0].account_active === 0) {
-      //   return res.status(403).json({
-      //     msg: "Your account has been deactivated. Please contact support.",
-      //   });
-      // }
+      if (userRows.length > 0 && userRows[0].account_active === 0) {
+        return res.status(403).json({
+          msg: "Your account has been deactivated. Please contact support.",
+        });
+      }
       // Remove any existing OTP for this phone
       await conn.query("DELETE FROM otps WHERE phone = ?", [phone]);
 
@@ -111,8 +111,8 @@ router.post("/verify-otp", async (req, res) => {
         "SELECT * FROM otps WHERE phone = ? AND otp = ? AND expireAt > NOW()",
         [phone, otp]
       );
-      // if (otpRows.length === 0)
-      //   return res.status(400).json({ msg: "OTP expired or not found" });
+      if (otpRows.length === 0)
+        return res.status(400).json({ msg: "OTP expired or not found" });
 
       // Remove OTP after use
       await conn.query("DELETE FROM otps WHERE phone = ?", [phone]);
@@ -142,12 +142,6 @@ router.post("/verify-otp", async (req, res) => {
       } else {
         // Existing user → update verification if needed
         const user = userRows[0];
-
-        // if (user.account_active === 0) {
-        //   return res.status(403).json({
-        //     msg: "Your account has been deactivated. Please contact support.",
-        //   });
-        // }
 
         if (!user.verified) {
           await conn.query("UPDATE users SET verified = ? WHERE phone = ?", [
