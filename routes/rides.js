@@ -819,6 +819,174 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
   }
 });
 
+// ------------ Cancel the Offered Ride By the Owner ----------- (By the Respective Owner of Ride)
+router.post(
+  "/rides/:rideId/cancel_owner",
+  authenticateToken,
+  async (req, res) => {
+    const { rideId } = req.params;
+    const { cancel_reason } = req.body;
+    const phone = req.user.phone;
+
+    if (!cancel_reason || cancel_reason.trim() === "") {
+      return res.status(400).json({
+        success: false,
+        msg: "Cancellation reason is required",
+      });
+    }
+
+    let conn;
+
+    try {
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+
+      // 1️⃣ Get owner
+      const [[user]] = await conn.query(
+        "SELECT id, fullname FROM users WHERE phone = ?",
+        [phone]
+      );
+
+      if (!user) {
+        await conn.rollback();
+        return res.status(404).json({
+          success: false,
+          msg: "User not found",
+        });
+      }
+
+      // 2️⃣ Get ride and verify ownership
+      const [[ride]] = await conn.query(
+        `
+        SELECT id, user_id, ride_status, seats_available
+        FROM rides
+        WHERE id = ? AND user_id = ?
+        FOR UPDATE
+        `,
+        [rideId, user.id]
+      );
+
+      if (!ride) {
+        await conn.rollback();
+        return res.status(404).json({
+          success: false,
+          msg: "Ride not found or access denied",
+        });
+      }
+
+      // 3️⃣ Prevent invalid cancellations
+      if (ride.ride_status === "cancelled") {
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          msg: "Ride is already cancelled",
+        });
+      }
+
+      if (ride.ride_status === "completed") {
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          msg: "Completed ride cannot be cancelled",
+        });
+      }
+
+      // Check for in_route and in_progrees rides
+      if (
+        ride.ride_status === "in_progress" ||
+        ride.ride_status === "in_route"
+      ) {
+        await conn.rollback();
+        return res.status(400).json({
+          success: false,
+          msg: "Ongoing ride cannot be cancelled",
+        });
+      }
+
+      // 4️⃣ Cancel ride itself
+      await conn.query(
+        `
+  UPDATE rides
+  SET ride_status = 'cancelled',
+      cancel_reason = ?,
+      cancelled_at = NOW()
+  WHERE id = ?
+  `,
+        [cancel_reason.trim(), rideId]
+      );
+
+      // 5️⃣ Cancel all pending / accepted requests linked to this ride
+      await conn.query(
+        `
+        UPDATE ride_requests
+        SET status = 'cancelled',
+            cancel_reason = ?,
+            cancelled_at = NOW()
+        WHERE ride_id = ?
+          AND status IN ('pending', 'accepted')
+        `,
+        [cancel_reason.trim(), rideId]
+      );
+
+      // 6️⃣ Get affected passengers for notifications
+      const [affectedPassengers] = await conn.query(
+        `
+        SELECT DISTINCT u.id, u.fullname, u.fcm_token, rr.id AS request_id
+        FROM ride_requests rr
+        JOIN users u ON u.id = rr.passenger_id
+        WHERE rr.ride_id = ?
+        `,
+        [rideId]
+      );
+
+      await conn.commit();
+
+      // 7️⃣ Fire-and-forget notifications
+      if (affectedPassengers?.length) {
+        for (const passenger of affectedPassengers) {
+          if (passenger?.fcm_token) {
+            (async () => {
+              try {
+                await sendPushNotification(
+                  passenger.fcm_token,
+                  "Ride Cancelled",
+                  `${user.fullname || "Driver"} cancelled the ride`,
+                  {
+                    type: "ride_cancelled_by_owner",
+                    ride_id: rideId.toString(),
+                    request_id: passenger.request_id?.toString() || "",
+                    cancel_reason: cancel_reason.trim(),
+                    action: "view_booking",
+                  },
+                  passenger.id.toString()
+                );
+              } catch (err) {
+                console.error("Passenger notification error:", err);
+              }
+            })();
+          }
+        }
+      }
+
+      return res.json({
+        success: true,
+        msg: "Ride cancelled successfully",
+      });
+    } catch (err) {
+      if (conn) await conn.rollback();
+      console.error("Owner cancel ride error:", err);
+
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to cancel ride",
+        error: err.message,
+      });
+    } finally {
+      if (conn) conn.release();
+    }
+  }
+);
+
 // ------------ Cancel the Requested Ride ------------------ (By Customer)
 {
   /*
