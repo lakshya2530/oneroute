@@ -788,7 +788,7 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
       JOIN users u ON rr.passenger_id = u.id
       WHERE rr.ride_id = ?
         AND rr.status IN ('pending', 'accepted')
-        AND r.ride_status != 'completed'
+        AND rr.ride_status != 'completed'
       ORDER BY rr.created_at DESC
       `,
       [rideId]
