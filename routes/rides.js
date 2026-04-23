@@ -754,7 +754,6 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
     const baseUrl =
       process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
 
-    // 1️⃣ Get owner
     const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
       phone,
     ]);
@@ -763,7 +762,6 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
       return res.status(404).json({ msg: "User not found" });
     }
 
-    // 2️⃣ Verify ride ownership
     const [[ride]] = await conn.query(
       "SELECT * FROM rides WHERE id = ? AND user_id = ?",
       [rideId, user.id]
@@ -775,7 +773,13 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
       });
     }
 
-    // 3️⃣ Fetch ONLY active requests
+    if (ride.ride_status === "completed") {
+      return res.json({
+        ride,
+        requests: [],
+      });
+    }
+
     const [requestsRaw] = await conn.query(
       `
       SELECT rr.*, 
@@ -788,7 +792,6 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
       JOIN users u ON rr.passenger_id = u.id
       WHERE rr.ride_id = ?
         AND rr.status IN ('pending', 'accepted')
-        AND rr.ride_status != 'completed'
       ORDER BY rr.created_at DESC
       `,
       [rideId]
