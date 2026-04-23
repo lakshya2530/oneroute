@@ -792,6 +792,8 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
       JOIN users u ON rr.passenger_id = u.id
       WHERE rr.ride_id = ?
         AND rr.status IN ('pending', 'accepted')
+        AND r.ride_date >= CURDATE()
+        AND r.ride_status != 'completed'
       ORDER BY rr.created_at DESC
       `,
       [rideId]
@@ -1748,33 +1750,209 @@ router.post("/:rideId/verify-drop", authenticateToken, async (req, res) => {
   }
 });
 
-// Ride History
-router.get("/ride-history", authenticateToken, async (req, res) => {
+// ------------ Offered Ride History (Owner) ------------
+router.get("/offered-ride-history", authenticateToken, async (req, res) => {
   const { phone } = req.user;
   const conn = await pool.getConnection();
 
   try {
-    const [[user]] = await conn.query("SELECT id FROM users WHERE phone=?", [
-      phone,
-    ]);
+    const [[user]] = await conn.query(
+      "SELECT id, fullname, phone, gender, profile_pic FROM users WHERE phone = ?",
+      [phone]
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        msg: "User not found",
+      });
+    }
 
     const [history] = await conn.query(
       `
-      SELECT r.*
-      FROM rides r
-      LEFT JOIN ride_requests rr ON rr.ride_id = r.id
-      WHERE 
-        (r.user_id = ? OR rr.passenger_id = ?)
-         AND r.ride_status IN ('completed', 'cancelled', 'rejected')
-      GROUP BY r.id
-      ORDER BY r.updated_at DESC
-    `,
-      [user.id, user.id]
+      SELECT *
+      FROM rides
+      WHERE user_id = ?
+        AND ride_status IN ('completed', 'cancelled', 'rejected', 'reached_destination')
+      ORDER BY updated_at DESC, created_at DESC
+      `,
+      [user.id]
     );
 
-    res.json({ success: true, history });
+    res.json({
+      success: true,
+      count: history.length,
+      owner: user,
+      history,
+    });
   } catch (err) {
-    res.status(500).json({ msg: "Failed to fetch history" });
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      msg: "Failed to fetch offered ride history",
+      error: err.message,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+// ------------ Requested Ride History (Passenger) ------------
+router.get("/requested-ride-history", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const conn = await pool.getConnection();
+
+  try {
+    const [[user]] = await conn.query(
+      "SELECT id, fullname, phone, gender, profile_pic FROM users WHERE phone = ?",
+      [phone]
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        msg: "User not found",
+      });
+    }
+
+    const [history] = await conn.query(
+      `
+      SELECT
+        rr.id,
+        rr.ride_id,
+        rr.passenger_id,
+        rr.pickup_stop,
+        rr.no_of_seats,
+        rr.estimated_amount,
+        rr.message,
+        rr.status AS request_status,
+        rr.created_at AS request_created_at,
+        rr.cancel_reason,
+        rr.cancelled_at,
+
+        r.pickup_location,
+        r.drop_location,
+        r.pickup_lat,
+        r.pickup_lng,
+        r.drop_lat,
+        r.drop_lng,
+        r.ride_date,
+        r.ride_time,
+        r.amount_per_seat,
+        r.seats_available,
+        r.ride_status,
+        r.pickup_note,
+        r.vehicle_id,
+
+        owner.id AS owner_id,
+        owner.fullname AS owner_fullname,
+        owner.phone AS owner_phone,
+        owner.gender AS owner_gender,
+        owner.profile_pic AS owner_profile_pic
+      FROM ride_requests rr
+      JOIN rides r ON rr.ride_id = r.id
+      JOIN users owner ON r.user_id = owner.id
+      WHERE rr.passenger_id = ?
+        AND rr.status IN ('accepted', 'rejected', 'cancelled', 'completed')
+      ORDER BY rr.created_at DESC
+      `,
+      [user.id]
+    );
+
+    res.json({
+      success: true,
+      count: history.length,
+      passenger: user,
+      history,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      msg: "Failed to fetch requested ride history",
+      error: err.message,
+    });
+  } finally {
+    conn.release();
+  }
+});
+
+// ------------ Owner Received Request History ------------
+router.get("/owner-request-history", authenticateToken, async (req, res) => {
+  const { phone } = req.user;
+  const conn = await pool.getConnection();
+
+  try {
+    const [[user]] = await conn.query(
+      "SELECT id, fullname, phone, gender, profile_pic FROM users WHERE phone = ?",
+      [phone]
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        msg: "User not found",
+      });
+    }
+
+    const [history] = await conn.query(
+      `
+      SELECT
+        rr.id,
+        rr.ride_id,
+        rr.passenger_id,
+        rr.owner_id,
+        rr.pickup_stop,
+        rr.no_of_seats,
+        rr.estimated_amount,
+        rr.message,
+        rr.status AS request_status,
+        rr.created_at AS request_created_at,
+        rr.cancel_reason,
+        rr.cancelled_at,
+
+        r.pickup_location,
+        r.drop_location,
+        r.pickup_lat,
+        r.pickup_lng,
+        r.drop_lat,
+        r.drop_lng,
+        r.ride_date,
+        r.ride_time,
+        r.amount_per_seat,
+        r.seats_available,
+        r.ride_status,
+        r.pickup_note,
+        r.vehicle_id,
+
+        passenger.id AS passenger_user_id,
+        passenger.fullname AS passenger_fullname,
+        passenger.phone AS passenger_phone,
+        passenger.gender AS passenger_gender,
+        passenger.profile_pic AS passenger_profile_pic
+      FROM ride_requests rr
+      JOIN rides r ON rr.ride_id = r.id
+      JOIN users passenger ON rr.passenger_id = passenger.id
+      WHERE rr.owner_id = ?
+        AND rr.status IN ('accepted', 'rejected', 'cancelled', 'completed')
+      ORDER BY rr.created_at DESC
+      `,
+      [user.id]
+    );
+
+    res.json({
+      success: true,
+      count: history.length,
+      owner: user,
+      history,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      success: false,
+      msg: "Failed to fetch owner request history",
+      error: err.message,
+    });
   } finally {
     conn.release();
   }
