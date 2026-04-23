@@ -23,7 +23,7 @@ router.post(
       if (!user) return res.status(404).json({ msg: "User not found" });
 
       await conn.query(
-        "INSERT INTO vehicles (user_id, vehicle_make, vehicle_model, vehicle_year, license_plate, vehicle_image) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO vehicles (user_id, vehicle_make, vehicle_model, vehicle_year, license_plate, vehicle_image, status) VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
           user.id,
           vehicle_make,
@@ -31,6 +31,7 @@ router.post(
           vehicle_year,
           license_plate,
           req.file?.path || null,
+          "ACTIVE",
         ]
       );
 
@@ -68,7 +69,7 @@ router.get("/vehicles", authenticateToken, async (req, res) => {
     if (!user) return res.status(404).json({ msg: "User not found" });
 
     const [vehicles] = await conn.query(
-      "SELECT * FROM vehicles WHERE user_id=?",
+      "SELECT * FROM vehicles WHERE user_id=? AND status='ACTIVE'",
       [user.id]
     );
 
@@ -183,7 +184,7 @@ router.delete("/vehicles/:id", authenticateToken, async (req, res) => {
     ]);
 
     const [result] = await conn.query(
-      "DELETE FROM vehicles WHERE id=? AND user_id=?",
+      "UPDATE vehicles SET status='INACTIVE' WHERE id=? AND user_id=? AND status='ACTIVE'",
       [id, user.id]
     );
 
