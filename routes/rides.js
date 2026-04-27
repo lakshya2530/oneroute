@@ -193,7 +193,12 @@ router.get("/my-all-rides", authenticateToken, async (req, res) => {
     const user = userRows[0];
 
     const [rides] = await conn.query(
-      "SELECT * FROM rides WHERE user_id = ? AND ride_date >= CURDATE() ORDER BY created_at DESC",
+      `SELECT * 
+   FROM rides 
+   WHERE user_id = ? 
+   AND ride_date >= CURDATE()
+   AND ride_status != 'cancelled'
+   ORDER BY created_at DESC`,
       [user.id]
     );
 
@@ -863,7 +868,7 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
 
 // ------------ Cancel the Offered Ride By the Owner ----------- (By the Respective Owner of Ride)
 router.post(
-  "/rides/:rideId/cancel_owner",
+  "/:rideId/cancel_owner",
   authenticateToken,
   async (req, res) => {
     const { rideId } = req.params;
