@@ -304,57 +304,97 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
   const { search, start_date } = req.query;
   const { phone } = req.user;
 
-  let sql = `
-    SELECT r.*
-    FROM rides r
-    JOIN users u ON r.user_id = u.id
-    WHERE u.phone != ?
-  `;
-
-  const params = [phone];
-
-  // 🔍 Drop location search
-  if (search) {
-    const normalizedSearch = search.trim();
-
-    sql += ` 
-    AND (
-      REPLACE(r.drop_location, '+', ' ') LIKE ?
-      OR REPLACE(r.pickup_location, '+', ' ') LIKE ?
-    )
-  `;
-
-    params.push(`%${normalizedSearch}%`, `%${normalizedSearch}%`);
-  }
-
-  // ✅ EXACT DATE FILTER (THIS IS THE KEY FIX)
-  if (start_date) {
-    sql += `
-      AND r.ride_date >= ?
-      AND r.ride_date < DATE_ADD(?, INTERVAL 1 DAY)
-    `;
-    params.push(start_date, start_date);
-  }
-
-  sql += ` ORDER BY r.created_at DESC`;
+  let conn;
 
   try {
-    const conn = await pool.getConnection();
+    conn = await pool.getConnection();
+
+    // Get logged user
+    const [[loggedUser]] = await conn.query(
+      `SELECT id FROM users WHERE phone = ?`,
+      [phone]
+    );
+
+    if (!loggedUser) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
+
+    const userId = loggedUser.id;
+
+    let sql = `
+      SELECT 
+        r.*,
+
+        CASE 
+          WHEN rr.id IS NOT NULL THEN true
+          ELSE false
+        END AS has_requested,
+
+        rr.status AS my_request_status
+
+      FROM rides r
+
+      JOIN users u 
+        ON r.user_id = u.id
+
+      LEFT JOIN ride_requests rr
+        ON rr.ride_id = r.id
+        AND rr.passenger_id = ?
+        AND rr.status IN ('pending', 'accepted')
+
+      WHERE r.user_id != ?
+    `;
+
+    const params = [userId, userId];
+
+    // Search
+    if (search && search.trim() !== "") {
+      const normalizedSearch = search.trim();
+
+      sql += `
+        AND (
+          REPLACE(r.drop_location, '+', ' ') LIKE ?
+          OR REPLACE(r.pickup_location, '+', ' ') LIKE ?
+        )
+      `;
+
+      params.push(`%${normalizedSearch}%`, `%${normalizedSearch}%`);
+    }
+
+    // Date
+    if (start_date && start_date.trim() !== "") {
+      sql += `
+        AND r.ride_date >= ?
+        AND r.ride_date < DATE_ADD(?, INTERVAL 1 DAY)
+      `;
+
+      params.push(start_date, start_date);
+    }
+
+    sql += `
+      AND r.ride_status IN ('open', 'full')
+      AND r.ride_date >= CURDATE()
+      ORDER BY r.created_at DESC
+    `;
+
     const [rides] = await conn.query(sql, params);
-    conn.release();
 
     return res.json({
       success: true,
-      count: rides.length,
       rides,
     });
   } catch (err) {
     console.error("❌ Error fetching rides:", err);
+
     return res.status(500).json({
       success: false,
       message: "Failed to fetch rides",
-      error: err.message,
     });
+  } finally {
+    if (conn) conn.release();
   }
 });
 
