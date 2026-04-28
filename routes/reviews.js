@@ -281,7 +281,7 @@ router.get("/ride/:rideId", authenticateToken, async (req, res) => {
 
 router.get("/user/:userId", async (req, res) => {
   const { userId } = req.params;
-  let { role } = req.query; // rider | passenger | any case
+  let { role } = req.query;
 
   if (!role) {
     return res.status(400).json({
@@ -299,7 +299,7 @@ router.get("/user/:userId", async (req, res) => {
 
   try {
     const [[user]] = await pool.query(
-      "SELECT id FROM users WHERE id = ? LIMIT 1",
+      "SELECT id, fullname, profile_pic FROM users WHERE id = ? LIMIT 1",
       [userId]
     );
 
@@ -309,7 +309,10 @@ router.get("/user/:userId", async (req, res) => {
 
     const [reviews] = await pool.query(
       `
-      SELECT rating, comment, created_at
+      SELECT 
+        rating, 
+        comment, 
+        created_at
       FROM reviews
       WHERE reviewee_id = ?
         AND reviewee_role = ?
@@ -318,10 +321,25 @@ router.get("/user/:userId", async (req, res) => {
       [userId, role]
     );
 
+    const [[summary]] = await pool.query(
+      `
+      SELECT 
+        COUNT(*) AS total_reviews,
+        ROUND(AVG(rating), 1) AS average_rating
+      FROM reviews
+      WHERE reviewee_id = ?
+        AND reviewee_role = ?
+      `,
+      [userId, role]
+    );
+
     res.json({
-      user_id: userId,
+      user_id: Number(userId),
+      name: user.fullname,
+      profile_pic: user.profile_pic,
       role,
-      total_reviews: reviews.length,
+      average_rating: summary.average_rating || 0,
+      total_reviews: summary.total_reviews || 0,
       reviews,
     });
   } catch (err) {
