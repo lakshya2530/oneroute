@@ -210,6 +210,74 @@ router.get("/me", authenticateToken, async (req, res) => {
   }
 });
 
+// Get reviews for specific ride
+router.get("/ride/:rideId", authenticateToken, async (req, res) => {
+  const { rideId } = req.params;
+
+  try {
+    const [[ride]] = await pool.query(
+      "SELECT id FROM rides WHERE id = ? LIMIT 1",
+      [rideId]
+    );
+
+    if (!ride) {
+      return res.status(404).json({ msg: "Ride not found" });
+    }
+
+    const [reviews] = await pool.query(
+      `
+      SELECT 
+        rv.id,
+        rv.ride_id,
+        rv.rating,
+        rv.comment,
+        rv.reviewer_role,
+        rv.reviewee_role,
+        rv.created_at,
+
+        reviewer.id AS reviewer_id,
+        reviewer.fullname AS reviewer_name,
+        reviewer.profile_pic AS reviewer_profile_pic,
+
+        reviewee.id AS reviewee_id,
+        reviewee.fullname AS reviewee_name,
+        reviewee.profile_pic AS reviewee_profile_pic
+
+      FROM reviews rv
+      JOIN users reviewer ON reviewer.id = rv.reviewer_id
+      JOIN users reviewee ON reviewee.id = rv.reviewee_id
+      WHERE rv.ride_id = ?
+      ORDER BY rv.created_at DESC
+      `,
+      [rideId]
+    );
+
+    const [[summary]] = await pool.query(
+      `
+      SELECT 
+        COUNT(*) AS total_reviews,
+        ROUND(AVG(rating), 1) AS average_rating
+      FROM reviews
+      WHERE ride_id = ?
+      `,
+      [rideId]
+    );
+
+    res.json({
+      ride_id: Number(rideId),
+      total_reviews: summary.total_reviews || 0,
+      average_rating: summary.average_rating || 0,
+      reviews,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      msg: "Failed to fetch ride reviews",
+      error: err.message,
+    });
+  }
+});
+
 //   Get ratings of any user (public profile)
 
 router.get("/user/:userId", async (req, res) => {
