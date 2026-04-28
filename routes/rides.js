@@ -1,7 +1,7 @@
 // routes/rides.js
 const express = require("express");
 const router = express.Router();
-const pool = require("../db/connection.js");
+const {pool} = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
 const sendPushNotification = require("../utils/pushNotification.js");
