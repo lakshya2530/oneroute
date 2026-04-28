@@ -133,7 +133,6 @@ router.post("/", authenticateToken, async (req, res) => {
 });
 
 //   Get my ratings as RIDER & PASSENGER
-
 router.get("/me", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
 

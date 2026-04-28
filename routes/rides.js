@@ -330,28 +330,39 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     const userId = loggedUser.id;
 
     let sql = `
-      SELECT 
-        r.*,
+  SELECT 
+    r.*,
 
-        CASE 
-          WHEN rr.id IS NOT NULL THEN true
-          ELSE false
-        END AS has_requested,
+    u.id AS owner_id,
+    u.fullname AS owner_name,
+    u.profile_pic AS owner_profile_pic,
 
-        rr.status AS my_request_status
+    COALESCE(ROUND(AVG(rv.rating), 1), 0) AS owner_rider_rating,
+    COUNT(rv.id) AS owner_rider_total_reviews,
 
-      FROM rides r
+    CASE 
+      WHEN rr.id IS NOT NULL THEN true
+      ELSE false
+    END AS has_requested,
 
-      JOIN users u 
-        ON r.user_id = u.id
+    rr.status AS my_request_status
 
-      LEFT JOIN ride_requests rr
-        ON rr.ride_id = r.id
-        AND rr.passenger_id = ?
-        AND rr.status IN ('pending', 'accepted')
+  FROM rides r
 
-      WHERE r.user_id != ?
-    `;
+  JOIN users u 
+    ON r.user_id = u.id
+
+  LEFT JOIN reviews rv
+    ON rv.reviewee_id = r.user_id
+    AND rv.reviewee_role = 'RIDER'
+
+  LEFT JOIN ride_requests rr
+    ON rr.ride_id = r.id
+    AND rr.passenger_id = ?
+    AND rr.status IN ('pending', 'accepted')
+
+  WHERE r.user_id != ?
+`;
 
     const params = [userId, userId];
 
@@ -380,10 +391,11 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
     }
 
     sql += `
-      AND r.ride_status IN ('open', 'full')
-      AND r.ride_date >= CURDATE()
-      ORDER BY r.created_at DESC
-    `;
+  AND r.ride_status IN ('open', 'full')
+  AND r.ride_date >= CURDATE()
+  GROUP BY r.id
+  ORDER BY r.created_at DESC
+`;
 
     const [rides] = await conn.query(sql, params);
 
@@ -403,21 +415,20 @@ router.get("/get-rides", authenticateToken, async (req, res) => {
   }
 });
 
-// --- Get Full Ride Details (Driver + All Customers + Vehicle) ---
+// --- Get Full Ride Details (Driver + Customer + Vehicle + Ratings) ---
 router.get("/ride/:id", authenticateToken, async (req, res) => {
   const { id } = req.params;
-  const { phone } = req.user; // phone from JWT
   const conn = await pool.getConnection();
 
   try {
-    // --- 1. Base URL for images ---
     const BASE_URL = `${req.protocol}://${req.get("host")}/`;
 
-    // --- 2. Get ride, driver & vehicle details ---
+    // --- 1. Get ride, driver, vehicle and DRIVER/RIDER rating ---
     const [rideRows] = await conn.query(
       `
       SELECT 
         r.*,
+
         u.id AS driver_id,
         u.fullname AS driver_name,
         u.phone AS driver_phone,
@@ -430,16 +441,35 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
         u.gov_id_number AS driver_gov_id_number,
         u.profile_pic AS driver_profile_pic,
         u.gov_id_image AS driver_gov_id_image,
+
         v.id AS vehicle_id,
         v.vehicle_make,
         v.vehicle_model,
         v.vehicle_year,
         v.license_plate,
-        v.vehicle_image
+        v.vehicle_image,
+
+        COALESCE(ROUND(AVG(driver_reviews.rating), 1), 0) AS driver_rider_rating,
+        COUNT(driver_reviews.id) AS driver_rider_total_reviews
+
       FROM rides r
-      LEFT JOIN users u ON r.user_id = u.id
-      LEFT JOIN vehicles v ON r.user_id = v.user_id
+
+      LEFT JOIN users u 
+        ON r.user_id = u.id
+
+      LEFT JOIN vehicles v 
+        ON r.vehicle_id = v.id
+
+      LEFT JOIN reviews driver_reviews
+        ON driver_reviews.reviewee_id = u.id
+        AND driver_reviews.reviewee_role = 'RIDER'
+
       WHERE r.id = ?
+
+      GROUP BY 
+        r.id,
+        u.id,
+        v.id
       `,
       [id]
     );
@@ -453,7 +483,7 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
 
     const rideRow = rideRows[0];
 
-    // --- 3. Structure Ride Info ---
+    // --- 2. Structure Ride Info ---
     const ride = {
       id: rideRow.id,
       pickup_location: rideRow.pickup_location,
@@ -472,7 +502,7 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
       updated_at: rideRow.updated_at,
     };
 
-    // --- 4. Structure Driver Info ---
+    // --- 3. Structure Driver Info + Rider Rating ---
     const driver = {
       id: rideRow.driver_id,
       fullname: rideRow.driver_name,
@@ -484,15 +514,20 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
       city: rideRow.driver_city,
       state: rideRow.driver_state,
       gov_id_number: rideRow.driver_gov_id_number,
+
+      rider_rating: Number(rideRow.driver_rider_rating || 0),
+      rider_total_reviews: Number(rideRow.driver_rider_total_reviews || 0),
+
       profile_pic: rideRow.driver_profile_pic
         ? BASE_URL + rideRow.driver_profile_pic.replace(/\\/g, "/")
         : null,
+
       gov_id_image: rideRow.driver_gov_id_image
         ? BASE_URL + rideRow.driver_gov_id_image.replace(/\\/g, "/")
         : null,
     };
 
-    // --- 5. Structure Vehicle Info ---
+    // --- 4. Structure Vehicle Info ---
     const vehicle = rideRow.vehicle_id
       ? {
           id: rideRow.vehicle_id,
@@ -506,41 +541,59 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
         }
       : null;
 
-    // --- 6. Get all Customers who requested this ride ---
+    // --- 5. Get accepted customer + PASSENGER rating ---
     const [requestRows] = await conn.query(
       `
-  SELECT 
-    rr.id AS request_id,
-    rr.pickup_stop,
-    rr.no_of_seats,
-    rr.estimated_amount,
-    rr.message,
-    rr.status,
-    rr.created_at AS request_created_at,
-    rr.pickup_stop_lat,
-    rr.pickup_stop_lng,
-    u.id AS user_id,
-    u.fullname,
-    u.phone,
-    u.gender,
-    u.dob,
-    u.occupation,
-    u.address,
-    u.city,
-    u.state,
-    u.gov_id_number,
-    u.profile_pic,
-    u.gov_id_image
-  FROM ride_requests rr
-  LEFT JOIN users u ON rr.passenger_id = u.id
-  WHERE rr.ride_id = ? AND rr.status = 'accepted'
-  ORDER BY rr.created_at DESC
-  LIMIT 1
-  `,
+      SELECT 
+        rr.id AS request_id,
+        rr.pickup_stop,
+        rr.no_of_seats,
+        rr.estimated_amount,
+        rr.message,
+        rr.status,
+        rr.created_at AS request_created_at,
+        rr.pickup_stop_lat,
+        rr.pickup_stop_lng,
+
+        u.id AS user_id,
+        u.fullname,
+        u.phone,
+        u.gender,
+        u.dob,
+        u.occupation,
+        u.address,
+        u.city,
+        u.state,
+        u.gov_id_number,
+        u.profile_pic,
+        u.gov_id_image,
+
+        COALESCE(ROUND(AVG(passenger_reviews.rating), 1), 0) AS passenger_rating,
+        COUNT(passenger_reviews.id) AS passenger_total_reviews
+
+      FROM ride_requests rr
+
+      LEFT JOIN users u 
+        ON rr.passenger_id = u.id
+
+      LEFT JOIN reviews passenger_reviews
+        ON passenger_reviews.reviewee_id = u.id
+        AND passenger_reviews.reviewee_role = 'PASSENGER'
+
+      WHERE rr.ride_id = ? 
+        AND rr.status IN ('accepted', 'completed')
+
+      GROUP BY 
+        rr.id,
+        u.id
+
+      ORDER BY rr.created_at DESC
+      LIMIT 1
+      `,
       [id]
     );
 
-    // --- 7. Structure all Customer Request Details ---
+    // --- 6. Structure Customer Info + Passenger Rating ---
     const customers =
       requestRows.length > 0
         ? {
@@ -553,6 +606,7 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
             request_created_at: requestRows[0].request_created_at,
             pickup_stop_lat: requestRows[0].pickup_stop_lat,
             pickup_stop_lng: requestRows[0].pickup_stop_lng,
+
             customer: {
               id: requestRows[0].user_id,
               fullname: requestRows[0].fullname,
@@ -564,9 +618,16 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
               city: requestRows[0].city,
               state: requestRows[0].state,
               gov_id_number: requestRows[0].gov_id_number,
+
+              passenger_rating: Number(requestRows[0].passenger_rating || 0),
+              passenger_total_reviews: Number(
+                requestRows[0].passenger_total_reviews || 0
+              ),
+
               profile_pic: requestRows[0].profile_pic
                 ? BASE_URL + requestRows[0].profile_pic.replace(/\\/g, "/")
                 : null,
+
               gov_id_image: requestRows[0].gov_id_image
                 ? BASE_URL + requestRows[0].gov_id_image.replace(/\\/g, "/")
                 : null,
@@ -574,17 +635,18 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
           }
         : null;
 
-    // --- 8. Send Combined Data ---
-    res.json({
+    // --- 7. Final Response ---
+    return res.json({
       success: true,
       ride,
       driver,
       vehicle,
-      customers, // all passengers who requested this ride
+      customers,
     });
   } catch (err) {
     console.error("Error fetching ride details:", err);
-    res.status(500).json({
+
+    return res.status(500).json({
       success: false,
       msg: "Failed to fetch ride details",
       error: err.message,
@@ -867,104 +929,98 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
 });
 
 // ------------ Cancel the Offered Ride By the Owner ----------- (By the Respective Owner of Ride)
-router.post(
-  "/:rideId/cancel_owner",
-  authenticateToken,
-  async (req, res) => {
-    const { rideId } = req.params;
-    const { cancel_reason } = req.body;
-    const phone = req.user.phone;
+router.post("/:rideId/cancel_owner", authenticateToken, async (req, res) => {
+  const { rideId } = req.params;
+  const { cancel_reason } = req.body;
+  const phone = req.user.phone;
 
-    if (!cancel_reason || cancel_reason.trim() === "") {
-      return res.status(400).json({
+  if (!cancel_reason || cancel_reason.trim() === "") {
+    return res.status(400).json({
+      success: false,
+      msg: "Cancellation reason is required",
+    });
+  }
+
+  let conn;
+
+  try {
+    conn = await pool.getConnection();
+    await conn.beginTransaction();
+
+    // 1️⃣ Get owner
+    const [[user]] = await conn.query(
+      "SELECT id, fullname FROM users WHERE phone = ?",
+      [phone]
+    );
+
+    if (!user) {
+      await conn.rollback();
+      return res.status(404).json({
         success: false,
-        msg: "Cancellation reason is required",
+        msg: "User not found",
       });
     }
 
-    let conn;
-
-    try {
-      conn = await pool.getConnection();
-      await conn.beginTransaction();
-
-      // 1️⃣ Get owner
-      const [[user]] = await conn.query(
-        "SELECT id, fullname FROM users WHERE phone = ?",
-        [phone]
-      );
-
-      if (!user) {
-        await conn.rollback();
-        return res.status(404).json({
-          success: false,
-          msg: "User not found",
-        });
-      }
-
-      // 2️⃣ Get ride and verify ownership
-      const [[ride]] = await conn.query(
-        `
+    // 2️⃣ Get ride and verify ownership
+    const [[ride]] = await conn.query(
+      `
         SELECT id, user_id, ride_status, seats_available
         FROM rides
         WHERE id = ? AND user_id = ?
         FOR UPDATE
         `,
-        [rideId, user.id]
-      );
+      [rideId, user.id]
+    );
 
-      if (!ride) {
-        await conn.rollback();
-        return res.status(404).json({
-          success: false,
-          msg: "Ride not found or access denied",
-        });
-      }
+    if (!ride) {
+      await conn.rollback();
+      return res.status(404).json({
+        success: false,
+        msg: "Ride not found or access denied",
+      });
+    }
 
-      // 3️⃣ Prevent invalid cancellations
-      if (ride.ride_status === "cancelled") {
-        await conn.rollback();
-        return res.status(400).json({
-          success: false,
-          msg: "Ride is already cancelled",
-        });
-      }
+    // 3️⃣ Prevent invalid cancellations
+    if (ride.ride_status === "cancelled") {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        msg: "Ride is already cancelled",
+      });
+    }
 
-      if (ride.ride_status === "completed") {
-        await conn.rollback();
-        return res.status(400).json({
-          success: false,
-          msg: "Completed ride cannot be cancelled",
-        });
-      }
+    if (ride.ride_status === "completed") {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        msg: "Completed ride cannot be cancelled",
+      });
+    }
 
-      // Check for in_route and in_progrees rides
-      if (
-        ride.ride_status === "in_progress" ||
-        ride.ride_status === "in_route"
-      ) {
-        await conn.rollback();
-        return res.status(400).json({
-          success: false,
-          msg: "Ongoing ride cannot be cancelled",
-        });
-      }
+    // Check for in_route and in_progrees rides
+    if (ride.ride_status === "in_progress" || ride.ride_status === "in_route") {
+      await conn.rollback();
+      return res.status(400).json({
+        success: false,
+        msg: "Ongoing ride cannot be cancelled",
+      });
+    }
 
-      // 4️⃣ Cancel ride itself
-      await conn.query(
-        `
+    // 4️⃣ Cancel ride itself
+    await conn.query(
+      `
   UPDATE rides
   SET ride_status = 'cancelled',
       cancel_reason = ?,
       cancelled_at = NOW()
   WHERE id = ?
   `,
-        [cancel_reason.trim(), rideId]
-      );
+      [cancel_reason.trim(), rideId]
+    );
 
-      // 5️⃣ Cancel all pending / accepted requests linked to this ride
-      await conn.query(
-        `
+    // 5️⃣ Cancel all pending / accepted requests linked to this ride
+    await conn.query(
+      `
         UPDATE ride_requests
         SET status = 'cancelled',
             cancel_reason = ?,
@@ -972,67 +1028,66 @@ router.post(
         WHERE ride_id = ?
           AND status IN ('pending', 'accepted')
         `,
-        [cancel_reason.trim(), rideId]
-      );
+      [cancel_reason.trim(), rideId]
+    );
 
-      // 6️⃣ Get affected passengers for notifications
-      const [affectedPassengers] = await conn.query(
-        `
+    // 6️⃣ Get affected passengers for notifications
+    const [affectedPassengers] = await conn.query(
+      `
         SELECT DISTINCT u.id, u.fullname, u.fcm_token, rr.id AS request_id
         FROM ride_requests rr
         JOIN users u ON u.id = rr.passenger_id
         WHERE rr.ride_id = ?
         `,
-        [rideId]
-      );
+      [rideId]
+    );
 
-      await conn.commit();
+    await conn.commit();
 
-      // 7️⃣ Fire-and-forget notifications
-      if (affectedPassengers?.length) {
-        for (const passenger of affectedPassengers) {
-          if (passenger?.fcm_token) {
-            (async () => {
-              try {
-                await sendPushNotification(
-                  passenger.fcm_token,
-                  "Ride Cancelled",
-                  `${user.fullname || "Driver"} cancelled the ride`,
-                  {
-                    type: "ride_cancelled_by_owner",
-                    ride_id: rideId.toString(),
-                    request_id: passenger.request_id?.toString() || "",
-                    cancel_reason: cancel_reason.trim(),
-                    action: "view_booking",
-                  },
-                  passenger.id.toString()
-                );
-              } catch (err) {
-                console.error("Passenger notification error:", err);
-              }
-            })();
-          }
+    // 7️⃣ Fire-and-forget notifications
+    if (affectedPassengers?.length) {
+      for (const passenger of affectedPassengers) {
+        if (passenger?.fcm_token) {
+          (async () => {
+            try {
+              await sendPushNotification(
+                passenger.fcm_token,
+                "Ride Cancelled",
+                `${user.fullname || "Driver"} cancelled the ride`,
+                {
+                  type: "ride_cancelled_by_owner",
+                  ride_id: rideId.toString(),
+                  request_id: passenger.request_id?.toString() || "",
+                  cancel_reason: cancel_reason.trim(),
+                  action: "view_booking",
+                },
+                passenger.id.toString()
+              );
+            } catch (err) {
+              console.error("Passenger notification error:", err);
+            }
+          })();
         }
       }
-
-      return res.json({
-        success: true,
-        msg: "Ride cancelled successfully",
-      });
-    } catch (err) {
-      if (conn) await conn.rollback();
-      console.error("Owner cancel ride error:", err);
-
-      return res.status(500).json({
-        success: false,
-        msg: "Failed to cancel ride",
-        error: err.message,
-      });
-    } finally {
-      if (conn) conn.release();
     }
+
+    return res.json({
+      success: true,
+      msg: "Ride cancelled successfully",
+    });
+  } catch (err) {
+    if (conn) await conn.rollback();
+    console.error("Owner cancel ride error:", err);
+
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to cancel ride",
+      error: err.message,
+    });
+  } finally {
+    if (conn) conn.release();
   }
-);
+});
 
 // ------------ Cancel the Requested Ride ------------------ (By Customer)
 {
