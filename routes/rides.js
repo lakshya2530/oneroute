@@ -1,7 +1,7 @@
 // routes/rides.js
 const express = require("express");
 const router = express.Router();
-const {pool} = require("../db/connection.js");
+const { pool } = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
 const sendPushNotification = require("../utils/pushNotification.js");
@@ -880,7 +880,10 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
       });
     }
 
-    if (ride.ride_status === "completed") {
+    if (
+      ride.ride_status === "completed" ||
+      new Date(ride.ride_date) < new Date().setHours(0, 0, 0, 0)
+    ) {
       return res.json({
         ride,
         requests: [],
@@ -889,20 +892,18 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
 
     const [requestsRaw] = await conn.query(
       `
-      SELECT rr.*, 
-             u.id AS user_id, 
-             u.fullname, 
-             u.phone, 
-             u.gender, 
-             u.profile_pic
-      FROM ride_requests rr
-      JOIN users u ON rr.passenger_id = u.id
-      WHERE rr.ride_id = ?
-        AND rr.status IN ('pending', 'accepted')
-        AND r.ride_date >= CURDATE()
-        AND r.ride_status != 'completed'
-      ORDER BY rr.created_at DESC
-      `,
+  SELECT rr.*, 
+         u.id AS user_id, 
+         u.fullname, 
+         u.phone, 
+         u.gender, 
+         u.profile_pic
+  FROM ride_requests rr
+  JOIN users u ON rr.passenger_id = u.id
+  WHERE rr.ride_id = ?
+    AND rr.status IN ('pending', 'accepted')
+  ORDER BY rr.created_at DESC
+  `,
       [rideId]
     );
 
