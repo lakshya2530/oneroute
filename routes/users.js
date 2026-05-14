@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const {pool} = require("../db/connection.js");
+const { pool } = require("../db/connection.js");
 const jwt = require("jsonwebtoken");
 const upload = require("../middleware/upload.js");
 const authenticateToken = require("../middleware/auth.js");
@@ -214,14 +214,31 @@ router.get("/profile", authenticateToken, async (req, res) => {
 // --- Update Profile ---
 router.put(
   "/update/profile",
+  authenticateToken,
   upload.fields([
     { name: "profile_pic", maxCount: 1 },
     { name: "gov_id_image", maxCount: 1 },
   ]),
-  authenticateToken,
   async (req, res) => {
     const { phone } = req.user;
+    const conn = await pool.getConnection();
+
     try {
+      console.log("BODY:", req.body);
+      console.log("FILES:", req.files);
+
+      // Get existing user first
+      const [existingRows] = await conn.query(
+        "SELECT * FROM users WHERE phone=?",
+        [phone]
+      );
+
+      if (existingRows.length === 0) {
+        return res.status(404).json({ msg: "User not found" });
+      }
+
+      const existingUser = existingRows[0];
+
       const {
         fullname,
         dob,
@@ -233,43 +250,94 @@ router.put(
         gov_id_number,
       } = req.body;
 
-      const conn = await pool.getConnection();
-      try {
-        const [updateResult] = await conn.query(
-          `UPDATE users SET fullname=?, dob=?, gender=?, occupation=?, address=?, city=?, state=?, gov_id_number=?, 
-           profile_pic=?, gov_id_image=? WHERE phone=?`,
-          [
-            fullname,
-            dob,
-            gender,
-            occupation,
-            address,
-            city,
-            state,
-            gov_id_number,
-            req.files["profile_pic"]?.[0]?.path || null,
-            req.files["gov_id_image"]?.[0]?.path || null,
-            phone,
-          ]
-        );
+      // Keep old image if new image not uploaded
+      const profilePicPath =
+        req.files?.profile_pic?.[0]?.path || existingUser.profile_pic;
 
-        if (updateResult.affectedRows === 0) {
-          return res.status(404).json({ msg: "User not found" });
-        }
+      const govIdImagePath =
+        req.files?.gov_id_image?.[0]?.path || existingUser.gov_id_image;
 
-        const [userRows] = await conn.query(
-          "SELECT * FROM users WHERE phone=?",
-          [phone]
-        );
-        const updatedUser = userRows[0];
+      // Keep previous values if null/empty
+      const updatedData = {
+        fullname:
+          fullname && fullname !== "null" ? fullname : existingUser.fullname,
 
-        res.json({ user: updatedUser, msg: "Profile updated successfully" });
-      } finally {
-        conn.release();
+        dob: dob && dob !== "null" ? dob : existingUser.dob,
+
+        gender: gender && gender !== "null" ? gender : existingUser.gender,
+
+        occupation:
+          occupation && occupation !== "null"
+            ? occupation
+            : existingUser.occupation,
+
+        address: address && address !== "null" ? address : existingUser.address,
+
+        city: city && city !== "null" ? city : existingUser.city,
+
+        state: state && state !== "null" ? state : existingUser.state,
+
+        gov_id_number:
+          gov_id_number && gov_id_number !== "null"
+            ? gov_id_number
+            : existingUser.gov_id_number,
+
+        profile_pic: profilePicPath,
+        gov_id_image: govIdImagePath,
+      };
+
+      const [updateResult] = await conn.query(
+        `UPDATE users 
+         SET fullname=?, dob=?, gender=?, occupation=?, address=?, city=?, state=?, gov_id_number=?, profile_pic=?, gov_id_image=?
+         WHERE phone=?`,
+        [
+          updatedData.fullname,
+          updatedData.dob,
+          updatedData.gender,
+          updatedData.occupation,
+          updatedData.address,
+          updatedData.city,
+          updatedData.state,
+          updatedData.gov_id_number,
+          updatedData.profile_pic,
+          updatedData.gov_id_image,
+          phone,
+        ]
+      );
+
+      if (updateResult.affectedRows === 0) {
+        return res.status(404).json({ msg: "Profile update failed" });
       }
+
+      const [userRows] = await conn.query("SELECT * FROM users WHERE phone=?", [
+        phone,
+      ]);
+
+      const updatedUser = userRows[0];
+
+      const baseUrl =
+        process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
+
+      updatedUser.profile_pic = updatedUser.profile_pic
+        ? `${baseUrl}/${updatedUser.profile_pic.replace(/\\/g, "/")}`
+        : null;
+
+      updatedUser.gov_id_image = updatedUser.gov_id_image
+        ? `${baseUrl}/${updatedUser.gov_id_image.replace(/\\/g, "/")}`
+        : null;
+
+      res.json({
+        user: updatedUser,
+        msg: "Profile updated successfully",
+      });
     } catch (err) {
       console.error(err);
-      res.status(500).json({ msg: "Profile update failed" });
+      res.status(500).json({
+        msg: "Profile update failed",
+        error: err.message,
+      });
+    } finally {
+      conn.release();
     }
   }
 );
