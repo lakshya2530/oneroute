@@ -1370,6 +1370,8 @@ router.post(
 
       // ===================== ACCEPT =====================
       if (action === "accept") {
+        const remainingSeats = availableSeats - requestedSeats;
+
         if (remainingSeats < 0) {
           return res.status(400).json({ msg: "Not enough seats available" });
         }
@@ -1384,7 +1386,6 @@ router.post(
           [requestId]
         );
 
-        const remainingSeats = availableSeats - requestedSeats;
         const rideStatus = remainingSeats === 0 ? "full" : "open";
 
         await conn.query(
