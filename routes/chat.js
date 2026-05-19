@@ -104,32 +104,48 @@ router.post("/:rideId/send", authenticateToken, async (req, res) => {
 });
 
 // ----- Chat Accept ----
+// ----- Chat Accept ----
 router.post("/:rideId/accept", authenticateToken, async (req, res) => {
   const { rideId } = req.params;
   const userPhone = req.user.phone;
 
   const conn = await pool.getConnection();
+
   try {
     const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
       userPhone,
     ]);
-    if (!user) return res.status(404).json({ msg: "User not found" });
 
-    // Accept all pending messages for this ride
-    await conn.query(
+    if (!user) {
+      return res.status(404).json({
+        msg: "User not found",
+      });
+    }
+
+    // Update ALL messages for this ride
+    const [result] = await conn.query(
       `
       UPDATE messages
       SET chat_status = 'accepted'
       WHERE ride_id = ?
-        AND receiver_id = ?
-        AND chat_status = 'pending'
       `,
-      [rideId, user.id]
+      [rideId]
     );
 
-    res.json({ msg: "Chat accepted successfully." });
+    console.log("Updated rows:", result.affectedRows);
+
+    res.json({
+      success: true,
+      msg: "Chat accepted successfully.",
+      updatedRows: result.affectedRows,
+    });
   } catch (err) {
-    res.status(500).json({ msg: "Failed to accept chat", error: err.message });
+    console.error(err);
+
+    res.status(500).json({
+      msg: "Failed to accept chat",
+      error: err.message,
+    });
   } finally {
     conn.release();
   }
@@ -151,8 +167,6 @@ router.post("/:rideId/reject", authenticateToken, async (req, res) => {
       UPDATE messages
       SET chat_status = 'rejected'
       WHERE ride_id = ?
-        AND receiver_id = ?
-        AND chat_status = 'pending'
       `,
       [rideId, user.id]
     );
