@@ -1336,21 +1336,24 @@ router.post(
       }
 
       // 3️⃣ Get ride request
+      await conn.beginTransaction();
+
       const [requestRows] = await conn.query(
         `
-        SELECT rr.*, 
-               r.user_id AS owner_id, 
-               r.seats_available, 
-               r.ride_status, 
-               r.id AS ride_id,
-               r.pickup_location,
-               r.drop_location,
-               r.ride_date,
-               r.ride_time
-        FROM ride_requests rr
-        JOIN rides r ON rr.ride_id = r.id
-        WHERE rr.id=?
-        `,
+  SELECT rr.*, 
+         r.user_id AS owner_id, 
+         r.seats_available, 
+         r.ride_status, 
+         r.id AS ride_id,
+         r.pickup_location,
+         r.drop_location,
+         r.ride_date,
+         r.ride_time
+  FROM ride_requests rr
+  JOIN rides r ON rr.ride_id = r.id
+  WHERE rr.id=?
+  FOR UPDATE
+  `,
         [requestId]
       );
 
@@ -1363,16 +1366,36 @@ router.post(
         return res.status(403).json({ msg: "Not authorized" });
       }
 
+      if (request.status === "accepted") {
+        return res.status(400).json({
+          msg: "Ride request already accepted",
+        });
+      }
+
+      if (request.status === "rejected") {
+        return res.status(400).json({
+          msg: "Ride request already rejected",
+        });
+      }
+
+      if (
+        request.ride_status === "completed" ||
+        request.ride_status === "cancelled"
+      ) {
+        await conn.rollback();
+
+        return res.status(400).json({
+          msg: "Ride is no longer available",
+        });
+      }
+      
       const requestedSeats = Number(request.no_of_seats);
       const availableSeats = Number(request.seats_available);
 
-
+      const remainingSeats = availableSeats - requestedSeats;
       // ===================== ACCEPT =====================
       if (action === "accept") {
-        const remainingSeats = availableSeats - requestedSeats;
-
-      console.log(requestedSeats, availableSeats, remainingSeats);
-
+        console.log(requestedSeats, availableSeats, remainingSeats);
 
         if (remainingSeats < 0) {
           return res.status(400).json({ msg: "Not enough seats available" });
@@ -1381,7 +1404,7 @@ router.post(
         const pickupOTP = DEFAULT_OTP;
         const dropOTP = DEFAULT_OTP;
 
-        await conn.beginTransaction();
+        // await conn.beginTransaction();
 
         await conn.query(
           "UPDATE ride_requests SET status='accepted' WHERE id=?",
