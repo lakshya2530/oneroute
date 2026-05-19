@@ -1388,7 +1388,7 @@ router.post(
           msg: "Ride is no longer available",
         });
       }
-      
+
       const requestedSeats = Number(request.no_of_seats);
       const availableSeats = Number(request.seats_available);
 
@@ -1397,9 +1397,9 @@ router.post(
       if (action === "accept") {
         console.log(requestedSeats, availableSeats, remainingSeats);
 
-        if (remainingSeats < 0) {
-          return res.status(400).json({ msg: "Not enough seats available" });
-        }
+        // if (remainingSeats < 0) {
+        //   return res.status(400).json({ msg: "Not enough seats available" });
+        // }
 
         const pickupOTP = DEFAULT_OTP;
         const dropOTP = DEFAULT_OTP;
@@ -1411,7 +1411,7 @@ router.post(
           [requestId]
         );
 
-        const rideStatus = remainingSeats === 0 ? "full" : "open";
+        const rideStatus = remainingSeats < 0 ? "full" : "open";
 
         await conn.query(
           "UPDATE rides SET seats_available=?, ride_status=? WHERE id=?",
