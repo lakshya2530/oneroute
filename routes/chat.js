@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const {pool} = require("../db/connection.js");
+const { pool } = require("../db/connection.js");
 const jwt = require("jsonwebtoken");
 const upload = require("../middleware/upload.js");
 const authenticateToken = require("../middleware/auth.js");
@@ -234,10 +234,15 @@ router.get("/:rideId/history", authenticateToken, async (req, res) => {
     let pendingForUser = false;
 
     if (history.length > 0) {
-      chatStatus = history[0].chat_status;
+      // If ANY message is accepted -> accepted
+      const hasAccepted = history.some((msg) => msg.chat_status === "accepted");
 
-      // If pending & logged-in user is receiver → can accept
-      if (chatStatus === "pending" && history[0].receiver_id === user.id) {
+      chatStatus = hasAccepted ? "accepted" : "pending";
+
+      // Check latest pending message
+      const latestMessage = history[history.length - 1];
+
+      if (chatStatus === "pending" && latestMessage.receiver_id === user.id) {
         pendingForUser = true;
       }
     }
