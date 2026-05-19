@@ -1370,7 +1370,7 @@ router.post(
 
       // ===================== ACCEPT =====================
       if (action === "accept") {
-        if (requestedSeats > availableSeats) {
+        if (remainingSeats < 0) {
           return res.status(400).json({ msg: "Not enough seats available" });
         }
 
