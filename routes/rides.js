@@ -1366,11 +1366,13 @@ router.post(
       const requestedSeats = Number(request.no_of_seats);
       const availableSeats = Number(request.seats_available);
 
-      console.log(requestedSeats, availableSeats);
 
       // ===================== ACCEPT =====================
       if (action === "accept") {
         const remainingSeats = availableSeats - requestedSeats;
+
+      console.log(requestedSeats, availableSeats, remainingSeats);
+
 
         if (remainingSeats < 0) {
           return res.status(400).json({ msg: "Not enough seats available" });
