@@ -1366,6 +1366,8 @@ router.post(
       const requestedSeats = Number(request.no_of_seats);
       const availableSeats = Number(request.seats_available);
 
+      console.log(requestedSeats, availableSeats);
+
       // ===================== ACCEPT =====================
       if (action === "accept") {
         if (requestedSeats > availableSeats) {
