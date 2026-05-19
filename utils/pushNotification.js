@@ -92,7 +92,7 @@
 
 
 const admin = require("../config/firebase");
-const promisePool = require("../db/connection");
+const { promisePool } = require("../db/connection");
 
 function stringifyData(data = {}) {
   const out = {};
