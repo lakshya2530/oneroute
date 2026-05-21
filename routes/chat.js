@@ -4,6 +4,7 @@ const { pool } = require("../db/connection.js");
 const jwt = require("jsonwebtoken");
 const upload = require("../middleware/upload.js");
 const authenticateToken = require("../middleware/auth.js");
+const sendPushNotification = require("../utils/pushNotification.js");
 
 // --- Send Chat ---
 router.post("/:rideId/send", authenticateToken, async (req, res) => {
