@@ -424,6 +424,13 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
   try {
     const BASE_URL = `${req.protocol}://${req.get("host")}/`;
 
+    const [[currentUser]] = await conn.query(
+      "SELECT id FROM users WHERE phone = ?",
+      [req.user.phone]
+    );
+
+    const currentUserId = currentUser.id;
+
     // --- 1. Get ride, driver, vehicle and DRIVER/RIDER rating ---
     const [rideRows] = await conn.query(
       `
@@ -636,6 +643,19 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
           }
         : null;
 
+        const [[reviewCheck]] = await conn.query(
+          `
+  SELECT id
+  FROM reviews
+  WHERE ride_id = ?
+    AND reviewer_id = ?
+  LIMIT 1
+  `,
+          [id, currentUserId]
+        );
+
+        const hasReviewed = !!reviewCheck;
+
     // --- 7. Final Response ---
     return res.json({
       success: true,
@@ -643,6 +663,7 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
       driver,
       vehicle,
       customers,
+      hasReviewed,
     });
   } catch (err) {
     console.error("Error fetching ride details:", err);
