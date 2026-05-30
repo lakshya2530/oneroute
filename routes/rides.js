@@ -198,6 +198,7 @@ router.get("/my-all-rides", authenticateToken, async (req, res) => {
    WHERE user_id = ? 
    AND ride_date >= CURDATE()
    AND ride_status != 'cancelled'
+   AND ride_status != 'completed'
    ORDER BY created_at DESC`,
       [user.id]
     );
