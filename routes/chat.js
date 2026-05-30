@@ -20,7 +20,7 @@ router.post("/:rideId/send", authenticateToken, async (req, res) => {
   try {
     // Get sender
     const [[sender]] = await conn.query(
-      "SELECT id FROM users WHERE phone = ?",
+      "SELECT id, fullname FROM users WHERE phone = ?",
       [senderPhone]
     );
 
