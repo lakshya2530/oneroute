@@ -28,6 +28,8 @@ router.post("/:rideId/send", authenticateToken, async (req, res) => {
       return res.status(404).json({ msg: "Sender not found" });
     }
 
+    console.log(sender);
+
     // 🚫 PREVENT SELF CHAT
     if (Number(sender.id) === Number(receiverId)) {
       return res.status(400).json({
