@@ -643,18 +643,18 @@ router.get("/ride/:id", authenticateToken, async (req, res) => {
           }
         : null;
 
-        const [[reviewCheck]] = await conn.query(
-          `
+    const [[reviewCheck]] = await conn.query(
+      `
   SELECT id
   FROM reviews
   WHERE ride_id = ?
     AND reviewer_id = ?
   LIMIT 1
   `,
-          [id, currentUserId]
-        );
+      [id, currentUserId]
+    );
 
-        const hasReviewed = !!reviewCheck;
+    const hasReviewed = !!reviewCheck;
 
     // --- 7. Final Response ---
     return res.json({
@@ -1989,6 +1989,8 @@ router.get("/offered-ride-history", authenticateToken, async (req, res) => {
 // ------------ Requested Ride History (Passenger) ------------
 router.get("/requested-ride-history", authenticateToken, async (req, res) => {
   const { phone } = req.user;
+  const { status } = req.query;
+
   const conn = await pool.getConnection();
 
   try {
@@ -2004,8 +2006,7 @@ router.get("/requested-ride-history", authenticateToken, async (req, res) => {
       });
     }
 
-    const [history] = await conn.query(
-      `
+    let query = `
       SELECT
         rr.id,
         rr.ride_id,
@@ -2042,11 +2043,23 @@ router.get("/requested-ride-history", authenticateToken, async (req, res) => {
       JOIN rides r ON rr.ride_id = r.id
       JOIN users owner ON r.user_id = owner.id
       WHERE rr.passenger_id = ?
+    `;
+
+    const params = [user.id];
+
+    // Filter support
+    if (status) {
+      query += ` AND rr.status = ?`;
+      params.push(status.toLowerCase());
+    } else {
+      query += `
         AND rr.status IN ('accepted', 'rejected', 'cancelled', 'completed')
-      ORDER BY rr.created_at DESC
-      `,
-      [user.id]
-    );
+      `;
+    }
+
+    query += ` ORDER BY rr.created_at DESC`;
+
+    const [history] = await conn.query(query, params);
 
     res.json({
       success: true,
@@ -2069,6 +2082,8 @@ router.get("/requested-ride-history", authenticateToken, async (req, res) => {
 // ------------ Owner Received Request History ------------
 router.get("/owner-request-history", authenticateToken, async (req, res) => {
   const { phone } = req.user;
+  const { status } = req.query;
+
   const conn = await pool.getConnection();
 
   try {
@@ -2084,8 +2099,7 @@ router.get("/owner-request-history", authenticateToken, async (req, res) => {
       });
     }
 
-    const [history] = await conn.query(
-      `
+    let query = `
       SELECT
         rr.id,
         rr.ride_id,
@@ -2123,11 +2137,23 @@ router.get("/owner-request-history", authenticateToken, async (req, res) => {
       JOIN rides r ON rr.ride_id = r.id
       JOIN users passenger ON rr.passenger_id = passenger.id
       WHERE rr.owner_id = ?
+    `;
+
+    const params = [user.id];
+
+    // Filter support
+    if (status) {
+      query += ` AND rr.status = ?`;
+      params.push(status.toLowerCase());
+    } else {
+      query += `
         AND rr.status IN ('accepted', 'rejected', 'cancelled', 'completed')
-      ORDER BY rr.created_at DESC
-      `,
-      [user.id]
-    );
+      `;
+    }
+
+    query += ` ORDER BY rr.created_at DESC`;
+
+    const [history] = await conn.query(query, params);
 
     res.json({
       success: true,
