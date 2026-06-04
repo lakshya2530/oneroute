@@ -219,7 +219,7 @@ router.get("/my-all-rides", authenticateToken, async (req, res) => {
   }
 });
 
-// Get My Offered Rides (with Drop Location)
+// Get My Offered Rides (with Passenger Rating)
 router.get("/my_offered_ride", authenticateToken, async (req, res) => {
   const { phone } = req.user;
   const conn = await pool.getConnection();
@@ -227,30 +227,121 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
   try {
     // Get owner info
     const [[owner]] = await conn.query(
-      `SELECT id, fullname, phone, gender, dob, occupation, address, city, state, gov_id_number, profile_pic 
-       FROM users 
-       WHERE phone = ?`,
+      `
+      SELECT
+        id,
+        fullname,
+        phone,
+        gender,
+        dob,
+        occupation,
+        address,
+        city,
+        state,
+        gov_id_number,
+        profile_pic
+      FROM users
+      WHERE phone = ?
+      `,
       [phone]
     );
-    if (!owner) return res.status(404).json({ msg: "User not found" });
+
+    if (!owner) {
+      return res.status(404).json({
+        success: false,
+        msg: "User not found",
+      });
+    }
 
     const ownerId = owner.id;
 
     const [rideRequestsRaw] = await conn.query(
       `
-  SELECT rr.id, rr.ride_id, rr.passenger_id, rr.pickup_stop, rr.no_of_seats,
-         rr.estimated_amount, rr.message, rr.status, rr.created_at,
-         rr.pickup_stop_lat, rr.pickup_stop_lng, rr.owner_id,
-         r.pickup_location, r.drop_location, r.ride_date, r.ride_time, r.amount_per_seat,
-         u.id AS passenger_id, u.fullname AS passenger_fullname, u.phone AS passenger_phone,
-         u.gender AS passenger_gender, u.dob AS passenger_dob, u.occupation AS passenger_occupation,
-         u.address AS passenger_address, u.city AS passenger_city, u.state AS passenger_state,
-         u.gov_id_number AS passenger_gov_id_number, u.profile_pic AS passenger_profile_pic
-  FROM ride_requests rr
-  JOIN rides r ON rr.ride_id = r.id
-  JOIN users u ON rr.passenger_id = u.id
-  WHERE rr.owner_id = ? AND rr.status = 'accepted' AND r.ride_status != 'completed' ORDER BY rr.created_at DESC
-`,
+      SELECT
+        rr.id,
+        rr.ride_id,
+        rr.passenger_id,
+        rr.pickup_stop,
+        rr.no_of_seats,
+        rr.estimated_amount,
+        rr.message,
+        rr.status,
+        rr.created_at,
+        rr.pickup_stop_lat,
+        rr.pickup_stop_lng,
+        rr.owner_id,
+
+        r.pickup_location,
+        r.drop_location,
+        r.ride_date,
+        r.ride_time,
+        r.amount_per_seat,
+
+        u.id AS passenger_id,
+        u.fullname AS passenger_fullname,
+        u.phone AS passenger_phone,
+        u.gender AS passenger_gender,
+        u.dob AS passenger_dob,
+        u.occupation AS passenger_occupation,
+        u.address AS passenger_address,
+        u.city AS passenger_city,
+        u.state AS passenger_state,
+        u.gov_id_number AS passenger_gov_id_number,
+        u.profile_pic AS passenger_profile_pic,
+
+        COALESCE(ROUND(AVG(pr.rating), 1), 0) AS passenger_rating,
+        COUNT(pr.id) AS passenger_total_reviews
+
+      FROM ride_requests rr
+
+      JOIN rides r
+        ON rr.ride_id = r.id
+
+      JOIN users u
+        ON rr.passenger_id = u.id
+
+      LEFT JOIN reviews pr
+        ON pr.reviewee_id = u.id
+        AND pr.reviewee_role = 'PASSENGER'
+
+      WHERE rr.owner_id = ?
+        AND rr.status = 'accepted'
+        AND r.ride_status != 'completed'
+
+      GROUP BY
+        rr.id,
+        rr.ride_id,
+        rr.passenger_id,
+        rr.pickup_stop,
+        rr.no_of_seats,
+        rr.estimated_amount,
+        rr.message,
+        rr.status,
+        rr.created_at,
+        rr.pickup_stop_lat,
+        rr.pickup_stop_lng,
+        rr.owner_id,
+
+        r.pickup_location,
+        r.drop_location,
+        r.ride_date,
+        r.ride_time,
+        r.amount_per_seat,
+
+        u.id,
+        u.fullname,
+        u.phone,
+        u.gender,
+        u.dob,
+        u.occupation,
+        u.address,
+        u.city,
+        u.state,
+        u.gov_id_number,
+        u.profile_pic
+
+      ORDER BY rr.created_at DESC
+      `,
       [ownerId]
     );
 
@@ -266,7 +357,9 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
       pickup_stop_lat: rr.pickup_stop_lat,
       pickup_stop_lng: rr.pickup_stop_lng,
       owner_id: rr.owner_id,
+
       owner,
+
       ride: {
         id: rr.ride_id,
         pickup_location: rr.pickup_location,
@@ -275,6 +368,7 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
         ride_time: rr.ride_time,
         amount_per_seat: rr.amount_per_seat,
       },
+
       passenger: {
         id: rr.passenger_id,
         fullname: rr.passenger_fullname,
@@ -287,19 +381,25 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
         state: rr.passenger_state,
         gov_id_number: rr.passenger_gov_id_number,
         profile_pic: rr.passenger_profile_pic,
+
+        passenger_rating: Number(rr.passenger_rating || 0),
+        passenger_total_reviews: Number(rr.passenger_total_reviews || 0),
       },
     }));
 
-    res.json({
+    return res.json({
       success: true,
       count: rideRequests.length,
       rideRequests,
     });
   } catch (err) {
-    console.error(err);
-    res
-      .status(500)
-      .json({ msg: "Failed to fetch offered rides", error: err.message });
+    console.error("Error fetching offered rides:", err);
+
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to fetch offered rides",
+      error: err.message,
+    });
   } finally {
     conn.release();
   }
