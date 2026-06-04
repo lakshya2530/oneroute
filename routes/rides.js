@@ -972,7 +972,7 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
   }
 });
 
-// Ride Request for Owner (Under Created Rides)
+// Ride Request for Owner (Under Created Rides) + Passenger Rating
 router.get("/:rideId/requests", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
   const { rideId } = req.params;
@@ -983,66 +983,174 @@ router.get("/:rideId/requests", authenticateToken, async (req, res) => {
     const baseUrl =
       process.env.BASE_URL || `${req.protocol}://${req.get("host")}`;
 
+    // Get current user
     const [[user]] = await conn.query("SELECT id FROM users WHERE phone = ?", [
       phone,
     ]);
 
     if (!user) {
-      return res.status(404).json({ msg: "User not found" });
+      return res.status(404).json({
+        success: false,
+        msg: "User not found",
+      });
     }
 
+    // Verify ride ownership
     const [[ride]] = await conn.query(
-      "SELECT * FROM rides WHERE id = ? AND user_id = ?",
+      `
+      SELECT *
+      FROM rides
+      WHERE id = ?
+        AND user_id = ?
+      `,
       [rideId, user.id]
     );
 
     if (!ride) {
       return res.status(404).json({
+        success: false,
         msg: "Ride not found or you are not the owner",
       });
     }
 
+    // Hide requests for completed/expired rides
     if (
       ride.ride_status === "completed" ||
       new Date(ride.ride_date) < new Date().setHours(0, 0, 0, 0)
     ) {
       return res.json({
+        success: true,
         ride,
         requests: [],
       });
     }
 
+    // Get requests + passenger rating
     const [requestsRaw] = await conn.query(
       `
-  SELECT rr.*, 
-         u.id AS user_id, 
-         u.fullname, 
-         u.phone, 
-         u.gender, 
-         u.profile_pic
-  FROM ride_requests rr
-  JOIN users u ON rr.passenger_id = u.id
-  WHERE rr.ride_id = ?
-    AND rr.status IN ('pending', 'accepted')
-  ORDER BY rr.created_at DESC
-  `,
+      SELECT
+          rr.id,
+          rr.ride_id,
+          rr.passenger_id,
+          rr.owner_id,
+          rr.pickup_stop,
+          rr.no_of_seats,
+          rr.estimated_amount,
+          rr.message,
+          rr.status,
+          rr.created_at,
+          rr.pickup_stop_lat,
+          rr.pickup_stop_lng,
+
+          u.id AS user_id,
+          u.fullname,
+          u.phone,
+          u.gender,
+          u.dob,
+          u.occupation,
+          u.address,
+          u.city,
+          u.state,
+          u.gov_id_number,
+          u.profile_pic,
+          u.gov_id_image,
+
+          COALESCE(ROUND(AVG(pr.rating), 1), 0) AS passenger_rating,
+          COUNT(pr.id) AS passenger_total_reviews
+
+      FROM ride_requests rr
+
+      JOIN users u
+        ON rr.passenger_id = u.id
+
+      LEFT JOIN reviews pr
+        ON pr.reviewee_id = u.id
+        AND pr.reviewee_role = 'PASSENGER'
+
+      WHERE rr.ride_id = ?
+        AND rr.status IN ('pending', 'accepted')
+
+      GROUP BY
+          rr.id,
+          rr.ride_id,
+          rr.passenger_id,
+          rr.owner_id,
+          rr.pickup_stop,
+          rr.no_of_seats,
+          rr.estimated_amount,
+          rr.message,
+          rr.status,
+          rr.created_at,
+          rr.pickup_stop_lat,
+          rr.pickup_stop_lng,
+
+          u.id,
+          u.fullname,
+          u.phone,
+          u.gender,
+          u.dob,
+          u.occupation,
+          u.address,
+          u.city,
+          u.state,
+          u.gov_id_number,
+          u.profile_pic,
+          u.gov_id_image
+
+      ORDER BY rr.created_at DESC
+      `,
       [rideId]
     );
 
     const requests = requestsRaw.map((r) => ({
-      ...r,
-      profile_pic: r.profile_pic
-        ? `${baseUrl}/${r.profile_pic.replace(/\\/g, "/")}`
-        : null,
+      id: r.id,
+      ride_id: r.ride_id,
+      passenger_id: r.passenger_id,
+      owner_id: r.owner_id,
+      pickup_stop: r.pickup_stop,
+      no_of_seats: r.no_of_seats,
+      estimated_amount: r.estimated_amount,
+      message: r.message,
+      status: r.status,
+      created_at: r.created_at,
+      pickup_stop_lat: r.pickup_stop_lat,
+      pickup_stop_lng: r.pickup_stop_lng,
+
+      passenger: {
+        id: r.user_id,
+        fullname: r.fullname,
+        phone: r.phone,
+        gender: r.gender,
+        dob: r.dob,
+        occupation: r.occupation,
+        address: r.address,
+        city: r.city,
+        state: r.state,
+        gov_id_number: r.gov_id_number,
+
+        passenger_rating: Number(r.passenger_rating || 0),
+        passenger_total_reviews: Number(r.passenger_total_reviews || 0),
+
+        profile_pic: r.profile_pic
+          ? `${baseUrl}/${r.profile_pic.replace(/\\/g, "/")}`
+          : null,
+
+        gov_id_image: r.gov_id_image
+          ? `${baseUrl}/${r.gov_id_image.replace(/\\/g, "/")}`
+          : null,
+      },
     }));
 
-    res.json({
+    return res.json({
+      success: true,
       ride,
       requests,
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({
+    console.error("Failed to fetch ride requests:", err);
+
+    return res.status(500).json({
+      success: false,
       msg: "Failed to fetch requests",
       error: err.message,
     });
