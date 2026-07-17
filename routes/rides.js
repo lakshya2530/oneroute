@@ -940,6 +940,9 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
           "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
           [ride.user_id]
         );
+        
+        console.log("alphs--------------",owner, ride_id, passenger_id, result.insertId);
+
         if (owner && owner.fcm_token) {
           await sendPushNotification(
             owner.fcm_token,
@@ -1717,10 +1720,23 @@ router.post(
 
         if (passenger?.fcm_token) {
           try {
+            const formattedDate = new Intl.DateTimeFormat("en-IN", {
+              weekday: "long",
+              day: "numeric",
+              month: "long",
+              year: "numeric",
+            }).format(new Date(request.ride_date));
+
+            const formattedTime = new Intl.DateTimeFormat("en-IN", {
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            }).format(new Date(`1970-01-01T${request.ride_time}`));
+
             await sendPushNotification(
               passenger.fcm_token,
               "🎉 Ride Confirmed!",
-              `${owner.fullname} accepted your ride from ${request.pickup_location} to ${request.drop_location} on ${request.ride_date}.`,
+              `${owner.fullname} accepted your ride from ${request.pickup_location} to ${request.drop_location} on ${formattedDate} at ${formattedTime}.`,
               {
                 type: "ride_accepted",
                 ride_id: request.ride_id,
