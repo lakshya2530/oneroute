@@ -276,6 +276,7 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
         r.ride_date,
         r.ride_time,
         r.amount_per_seat,
+        r.ride_status,  
 
         u.id AS passenger_id,
         u.fullname AS passenger_fullname,
@@ -367,6 +368,7 @@ router.get("/my_offered_ride", authenticateToken, async (req, res) => {
         ride_date: rr.ride_date,
         ride_time: rr.ride_time,
         amount_per_seat: rr.amount_per_seat,
+        ride_status: rr.ride_status,
       },
 
       passenger: {
