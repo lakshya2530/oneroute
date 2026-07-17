@@ -1616,9 +1616,9 @@ router.post(
   async (req, res) => {
     const ownerPhone = req.user.phone;
     const { requestId } = req.params;
-    const { action } = req.body;
+    const { action, rejection_reason } = req.body;
 
-    const rejection_reason = "test Reason";
+    // const rejection_reason = "test Reason";
 
     let conn;
 
