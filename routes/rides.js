@@ -871,23 +871,36 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
   const { ride_id, pickup_stop, no_of_seats, message } = req.body;
 
   if (!ride_id || !pickup_stop || !no_of_seats) {
-    return res.status(400).json({ msg: "Missing required fields" });
+    return res.status(400).json({
+      success: false,
+      msg: "Missing required fields",
+    });
   }
 
-  const conn = await pool.getConnection();
+  let conn;
+
   try {
+    conn = await pool.getConnection();
+
     // Get passenger
     const [[user]] = await conn.query(
       "SELECT id, fullname FROM users WHERE phone = ?",
       [phone]
     );
-    if (!user) return res.status(404).json({ msg: "User not found" });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        msg: "User not found",
+      });
+    }
+
     const passenger_id = user.id;
 
-    // Check if already requested this ride
+    // Check duplicate request
     const [[existingRequest]] = await conn.query(
-      `SELECT id, status 
-       FROM ride_requests 
+      `SELECT id, status
+       FROM ride_requests
        WHERE ride_id = ? AND passenger_id = ?`,
       [ride_id, passenger_id]
     );
@@ -903,18 +916,44 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
     const [[ride]] = await conn.query("SELECT * FROM rides WHERE id = ?", [
       ride_id,
     ]);
-    if (!ride) return res.status(404).json({ msg: "Ride not found" });
-    if (ride.ride_status !== "open")
-      return res.status(400).json({ msg: "Ride is not open" });
-    if (no_of_seats > ride.seats_available)
-      return res.status(400).json({ msg: "Not enough seats" });
 
-    const estimated_amount = no_of_seats * ride.amount_per_seat;
+    if (!ride) {
+      return res.status(404).json({
+        success: false,
+        msg: "Ride not found",
+      });
+    }
 
-    // Insert request FIRST (no FCM dependency)
-    const result = await conn.query(
-      `INSERT INTO ride_requests (ride_id, passenger_id, owner_id, pickup_stop, no_of_seats, estimated_amount, message, status) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+    if (ride.ride_status !== "open") {
+      return res.status(400).json({
+        success: false,
+        msg: "Ride is not open",
+      });
+    }
+
+    if (Number(no_of_seats) > Number(ride.seats_available)) {
+      return res.status(400).json({
+        success: false,
+        msg: "Not enough seats",
+      });
+    }
+
+    const estimated_amount = Number(no_of_seats) * Number(ride.amount_per_seat);
+
+    // Insert ride request
+    const [result] = await conn.query(
+      `INSERT INTO ride_requests
+      (
+        ride_id,
+        passenger_id,
+        owner_id,
+        pickup_stop,
+        no_of_seats,
+        estimated_amount,
+        message,
+        status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         ride_id,
         passenger_id,
@@ -926,54 +965,72 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       ]
     );
 
-    console.log("result", result);
+    console.log("Request Insert ID:", result.insertId);
 
-    // Response immediately - success guaranteed
-    res.json({
+    // Send response immediately
+    res.status(200).json({
       success: true,
       msg: "Ride request sent successfully",
       request_id: result.insertId,
     });
 
-    // Fire-and-forget notification (won't block response)
+    // Fire & Forget Notification
     (async () => {
       try {
-        const [[owner]] = await conn.query(
+        const [ownerRows] = await pool.query(
           "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
           [ride.user_id]
         );
-        
-        console.log("alphs--------------",owner, ride_id, passenger_id, result.insertId);
 
-        if (owner && owner.fcm_token) {
-          await sendPushNotification(
-            owner.fcm_token,
-            "New Ride Request!",
-            `${
-              user.fullname || "Passenger"
-            } requested ${no_of_seats} seat(s) from ${pickup_stop}`,
-            {
-              type: "ride_request",
-              ride_id: ride_id.toString(),
-              request_id: result.insertId.toString(),
-              passenger_id: passenger_id.toString(),
-              no_of_seats: no_of_seats.toString(),
-              estimated_amount: estimated_amount.toString(),
-              action: "view_requests",
-            },
-            owner.id.toString()
-          );
+        const owner = ownerRows[0];
+
+        console.log("Owner:", owner);
+
+        if (!owner) {
+          console.log("Owner not found");
+          return;
         }
-      } catch (notifyErr) {
-        console.error("❌ Notification failed (non-blocking):", notifyErr);
-        // Don't fail the main request
-      } finally {
-        conn.release(); // Release after main response
+
+        if (!owner.fcm_token) {
+          console.log("Owner has no FCM token");
+          return;
+        }
+
+        console.log("Sending notification...");
+
+        await sendPushNotification(
+          owner.fcm_token,
+          "🚗 New Ride Request!",
+          `${user.fullname} requested ${no_of_seats} seat(s) from ${pickup_stop}.`,
+          {
+            type: "ride_request",
+            ride_id: ride_id.toString(),
+            request_id: result.insertId.toString(),
+            passenger_id: passenger_id.toString(),
+            no_of_seats: no_of_seats.toString(),
+            estimated_amount: estimated_amount.toString(),
+            action: "view_requests",
+          },
+          owner.id
+        );
+
+        console.log("✅ Notification sent successfully");
+      } catch (err) {
+        console.error("❌ Notification Error:", err);
       }
     })();
   } catch (err) {
     console.error("❌ Ride request error:", err);
-    res.status(500).json({ msg: "Failed to request ride", error: err.message });
+
+    return res.status(500).json({
+      success: false,
+      msg: "Failed to request ride",
+      error: err.message,
+    });
+  } finally {
+    if (conn) {
+      conn.release();
+    }
   }
 });
 
