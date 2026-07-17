@@ -900,15 +900,20 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
     // Check duplicate request
     const [[existingRequest]] = await conn.query(
       `SELECT id, status
-       FROM ride_requests
-       WHERE ride_id = ? AND passenger_id = ?`,
+   FROM ride_requests
+   WHERE ride_id = ?
+     AND passenger_id = ?
+     AND status IN ('pending', 'accepted')`,
       [ride_id, passenger_id]
     );
 
     if (existingRequest) {
       return res.status(400).json({
         success: false,
-        msg: `You have already sent a request for this ride (Status: ${existingRequest.status})`,
+        msg:
+          existingRequest.status === "pending"
+            ? "You already have a pending request for this ride."
+            : "You have already booked this ride.",
       });
     }
 
@@ -1566,7 +1571,7 @@ router.post(
             await sendPushNotification(
               reqData.fcm_token,
               "Ride Cancelled",
-              `${reqData.fullname} cancelled their ride request`,
+              `${reqData.fullname} cancelled their ride request. \nReason: ${cancel_reason}`,
               {
                 type: "ride_request_cancelled",
                 request_id: requestId.toString(),
@@ -1609,7 +1614,7 @@ router.post(
   async (req, res) => {
     const ownerPhone = req.user.phone;
     const { requestId } = req.params;
-    const { action } = req.body;
+    const { action, rejection_reason } = req.body;
 
     let conn;
 
@@ -1832,6 +1837,22 @@ router.post(
 
       // ================= REJECT =================
       if (action === "reject") {
+        if (!rejection_reason || !rejection_reason.trim()) {
+          await conn.rollback();
+
+          return res.status(400).json({
+            msg: "Rejection reason is required",
+          });
+        }
+
+        if (rejection_reason.trim().length > 200) {
+          await conn.rollback();
+
+          return res.status(400).json({
+            msg: "Rejection reason must not exceed 200 characters",
+          });
+        }
+
         await conn.query(
           `
           DELETE ro FROM ride_otps ro
@@ -1843,14 +1864,62 @@ router.post(
         );
 
         await conn.query(
-          "UPDATE ride_requests SET status='rejected' WHERE id=?",
-          [requestId]
+          `UPDATE ride_requests
+   SET status='rejected',
+       rejection_reason=?,
+       rejected_at=NOW()
+   WHERE id=?`,
+          [rejection_reason.trim(), requestId]
         );
 
         await conn.commit();
 
+        const [passengerRows] = await pool.query(
+          `SELECT id, fullname, fcm_token
+     FROM users
+     WHERE id=?`,
+          [request.passenger_id]
+        );
+
+        const passenger = passengerRows[0];
+
+        if (passenger?.fcm_token) {
+          try {
+            await sendPushNotification(
+              passenger.fcm_token,
+              "❌ Ride Request Rejected",
+              `${owner.fullname} rejected your ride request.\nReason: ${rejection_reason}`,
+              {
+                type: "ride_rejected",
+                ride_id: request.ride_id,
+                rejection_reason: rejection_reason,
+                action: "view_request",
+              },
+              passenger.id
+            );
+          } catch (pushError) {
+            console.log("Push notification failed:", pushError.message);
+          }
+        }
+
         return res.json({
           msg: "Ride rejected",
+          ride: {
+            id: request.ride_id,
+            pickup_location: request.pickup_location,
+            drop_location: request.drop_location,
+            ride_date: request.ride_date,
+            ride_time: request.ride_time,
+            seats_remaining: availableSeats,
+            ride_status: request.ride_status,
+          },
+          rejection_reason: rejection_reason,
+          request: {
+            id: request.id,
+            passenger_id: request.passenger_id,
+            no_of_seats: request.no_of_seats,
+            status: "rejected",
+          },
         });
       }
 
