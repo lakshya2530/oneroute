@@ -926,6 +926,8 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       ]
     );
 
+    console.log("result", result);
+
     // Response immediately - success guaranteed
     res.json({
       success: true,
