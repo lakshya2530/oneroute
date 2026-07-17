@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const {pool} = require("../db/connection.js");
+const { pool } = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
 
@@ -22,10 +22,10 @@ router.post(
     }
 
     // 🔹 Minimum 50 characters validation
-    if (description.trim().length < 50) {
+    if (description.trim().length > 100) {
       return res.status(400).json({
         success: false,
-        message: "Description must be at least 50 characters long",
+        message: "Description must not exceed 100 characters.",
       });
     }
 
