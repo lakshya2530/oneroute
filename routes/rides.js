@@ -1837,21 +1837,7 @@ router.post(
 
       // ================= REJECT =================
       if (action === "reject") {
-        if (!rejection_reason || !rejection_reason.trim()) {
-          await conn.rollback();
-
-          return res.status(400).json({
-            msg: "Rejection reason is required",
-          });
-        }
-
-        if (rejection_reason.trim().length > 200) {
-          await conn.rollback();
-
-          return res.status(400).json({
-            msg: "Rejection reason must not exceed 200 characters",
-          });
-        }
+     
 
         await conn.query(
           `
@@ -1866,7 +1852,7 @@ router.post(
         await conn.query(
           `UPDATE ride_requests
    SET status='rejected',
-       rejection_reason=?,
+       rejection_reason="test reason",
        rejected_at=NOW()
    WHERE id=?`,
           [rejection_reason.trim(), requestId]
