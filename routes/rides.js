@@ -1614,7 +1614,9 @@ router.post(
   async (req, res) => {
     const ownerPhone = req.user.phone;
     const { requestId } = req.params;
-    const { action, rejection_reason } = req.body;
+    const { action } = req.body;
+
+    const rejection_reason = "test Reason";
 
     let conn;
 
@@ -1837,7 +1839,21 @@ router.post(
 
       // ================= REJECT =================
       if (action === "reject") {
-     
+        if (!rejection_reason || !rejection_reason.trim()) {
+          await conn.rollback();
+
+          return res.status(400).json({
+            msg: "Rejection reason is required",
+          });
+        }
+
+        if (rejection_reason.trim().length > 200) {
+          await conn.rollback();
+
+          return res.status(400).json({
+            msg: "Rejection reason must not exceed 200 characters",
+          });
+        }
 
         await conn.query(
           `
@@ -1852,7 +1868,7 @@ router.post(
         await conn.query(
           `UPDATE ride_requests
    SET status='rejected',
-       rejection_reason="test reason",
+       rejection_reason=?,
        rejected_at=NOW()
    WHERE id=?`,
           [rejection_reason.trim(), requestId]
