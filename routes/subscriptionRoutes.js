@@ -100,7 +100,7 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
       try {
         const driver_id = req.user.id;
         const plan_id = req.params.id;
-  
+  console.log(driver_id,'asas');
         conn = await pool.getConnection();
   
         const [[plan]] = await conn.query(
