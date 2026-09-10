@@ -352,7 +352,7 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
     }
   );
 
-  router.post("/admin/subscription-plans", authenticateToken, async (req, res) => {
+  router.post("/subscription-plans", authenticateToken, async (req, res) => {
     const {
       name,
       description,
