@@ -357,7 +357,19 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
     authenticateToken,
     async (req, res) => {
       try {
-        const driver_id = req.user.id;
+        const { phone } = req.user;
+        const conn = await pool.getConnection();
+        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+            phone,
+          ]);
+    
+          if (!user) {
+            return res.status(404).json({
+              success: false,
+              message: "User not found",
+            });
+          }
+        const driver_id = user.id;
   
         // Expire old subscription
         await pool.query(
