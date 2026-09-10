@@ -339,5 +339,6 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
     }
   );
 
-  
+  module.exports = router;
+
   
