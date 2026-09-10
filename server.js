@@ -163,6 +163,10 @@ const chatRoutes = require("./routes/chat");
 const ticketRoutes = require("./routes/ticket");
 const reviewRoutes = require("./routes/reviews");
 
+const subscriptionRoutes = require("./routes/subscriptionRoutes");
+const driverBankRoutes = require("./routes/driverBankRoutes");
+
+
 // Admin routes
 const adminAuthRoutes = require("./admin/routes/auth");
 const adminCmsRoutes = require("./admin/routes/cms");
@@ -182,6 +186,8 @@ app.use("/api/rides", ridesRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/ticket", ticketRoutes);
 app.use("/api/review", reviewRoutes);
+app.use("/api", subscriptionRoutes);
+app.use("/api", driverBankRoutes);
 
 app.use("/api/admin/auth", adminAuthRoutes);
 app.use("/api/admin/cms", adminCmsRoutes);

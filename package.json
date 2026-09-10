@@ -27,7 +27,7 @@
     "mysql2": "^3.14.0",
     "pg": "^8.14.1",
     "pg-hstore": "^2.3.4",
-    "razorpay": "^2.9.6",
+    "razorpay": "^2.9.8",
     "sequelize": "^6.37.7",
     "socket.io": "^4.8.1",
     "xlsx": "^0.18.5"

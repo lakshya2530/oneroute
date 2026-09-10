@@ -6,6 +6,8 @@ const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
 const sendPushNotification = require("../utils/pushNotification.js");
 const { promisePool } = require("../db/connection.js");
+const razorpay = require("../config/razorpay");
+const crypto = require("crypto");
 
 const DEFAULT_OTP = "1234";
 
@@ -176,6 +178,80 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
     conn.release();
   }
 });
+// router.post("/", authenticateToken, upload.none(), async (req, res) => {
+//   const { phone } = req.user;
+//   const {
+//     pickup_location,
+//     pickup_lat,
+//     pickup_lng,
+//     drop_location,
+//     drop_lat,
+//     drop_lng,
+//     ride_date,
+//     ride_time,
+//     seats_available,
+//     amount_per_seat,
+//     pickup_note,
+//     vehicle_id,
+//   } = req.body;
+
+//   if (
+//     !pickup_location ||
+//     !pickup_lat ||
+//     !pickup_lng ||
+//     !drop_location ||
+//     !drop_lat ||
+//     !drop_lng ||
+//     !ride_date ||
+//     !ride_time ||
+//     !seats_available ||
+//     !amount_per_seat ||
+//     !vehicle_id
+//   ) {
+//     return res.status(400).json({ msg: "Missing required fields" });
+//   }
+
+//   const conn = await pool.getConnection();
+//   try {
+//     const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+//       phone,
+//     ]);
+//     if (!user) return res.status(404).json({ msg: "User not found" });
+
+//     await conn.query(
+//       `INSERT INTO rides 
+//       (user_id, pickup_location, pickup_lat, pickup_lng, drop_location, drop_lat, drop_lng, 
+//        ride_date, ride_time, seats_available, amount_per_seat, pickup_note, ride_status, vehicle_id) 
+//        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+//       [
+//         user.id,
+//         pickup_location,
+//         pickup_lat,
+//         pickup_lng,
+//         drop_location,
+//         drop_lat,
+//         drop_lng,
+//         ride_date,
+//         ride_time,
+//         seats_available,
+//         amount_per_seat,
+//         pickup_note || null,
+//         "open",
+//         vehicle_id,
+//       ]
+//     );
+
+//     res.json({ msg: "Ride created successfully" });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({
+//       msg: `Failed to create ride: ${err.sqlMessage || err.message}`,
+//       error: err.sqlMessage || err.message,
+//     });
+//   } finally {
+//     conn.release();
+//   }
+// });
 
 // --- Get My All Rides ---
 router.get("/my-all-rides", authenticateToken, async (req, res) => {
@@ -868,9 +944,17 @@ router.get("/my-all-ride-requests", authenticateToken, async (req, res) => {
 // ------------ Get Users Offered Rides --------------------
 
 //---------------- Request Rides (Ride Booking Flow) ----------------------
+
+
 router.post("/ride-requests", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
-  const { ride_id, pickup_stop, no_of_seats, message } = req.body;
+
+  const {
+    ride_id,
+    pickup_stop,
+    no_of_seats,
+    message
+  } = req.body;
 
   if (!ride_id || !pickup_stop || !no_of_seats) {
     return res.status(400).json({
@@ -884,7 +968,9 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
   try {
     conn = await pool.getConnection();
 
-    // Get passenger
+    // -----------------------------------
+    // 1. Get passenger
+    // -----------------------------------
     const [[user]] = await conn.query(
       "SELECT id, fullname FROM users WHERE phone = ?",
       [phone]
@@ -899,13 +985,15 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
 
     const passenger_id = user.id;
 
-    // Check duplicate request
+    // -----------------------------------
+    // 2. Check duplicate request
+    // -----------------------------------
     const [[existingRequest]] = await conn.query(
-      `SELECT id, status
-   FROM ride_requests
-   WHERE ride_id = ?
-     AND passenger_id = ?
-     AND status IN ('pending', 'accepted')`,
+      `SELECT id, status, payment_status
+       FROM ride_requests
+       WHERE ride_id = ?
+       AND passenger_id = ?
+       AND status IN ('pending', 'accepted')`,
       [ride_id, passenger_id]
     );
 
@@ -919,10 +1007,13 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       });
     }
 
-    // Get ride
-    const [[ride]] = await conn.query("SELECT * FROM rides WHERE id = ?", [
-      ride_id,
-    ]);
+    // -----------------------------------
+    // 3. Get ride
+    // -----------------------------------
+    const [[ride]] = await conn.query(
+      "SELECT * FROM rides WHERE id = ?",
+      [ride_id]
+    );
 
     if (!ride) {
       return res.status(404).json({
@@ -931,6 +1022,9 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       });
     }
 
+    // -----------------------------------
+    // 4. Check ride status
+    // -----------------------------------
     if (ride.ride_status !== "open") {
       return res.status(400).json({
         success: false,
@@ -938,6 +1032,9 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       });
     }
 
+    // -----------------------------------
+    // 5. Check seats
+    // -----------------------------------
     if (Number(no_of_seats) > Number(ride.seats_available)) {
       return res.status(400).json({
         success: false,
@@ -945,9 +1042,37 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
       });
     }
 
-    const estimated_amount = Number(no_of_seats) * Number(ride.amount_per_seat);
+    // -----------------------------------
+    // 6. Calculate amount
+    // -----------------------------------
+    const estimated_amount =
+      Number(no_of_seats) * Number(ride.amount_per_seat);
 
-    // Insert ride request
+    if (estimated_amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid ride amount",
+      });
+    }
+
+    // -----------------------------------
+    // 7. Create Razorpay order
+    // -----------------------------------
+    const razorpayOrder = await razorpay.orders.create({
+      amount: Math.round(estimated_amount * 100),
+      currency: "INR",
+      receipt: `ride_${ride_id}_${passenger_id}_${Date.now()}`,
+      notes: {
+        ride_id: ride_id.toString(),
+        passenger_id: passenger_id.toString(),
+      },
+    });
+
+    console.log("Razorpay Order:", razorpayOrder.id);
+
+    // -----------------------------------
+    // 8. Insert ride request
+    // -----------------------------------
     const [result] = await conn.query(
       `INSERT INTO ride_requests
       (
@@ -958,9 +1083,11 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
         no_of_seats,
         estimated_amount,
         message,
-        status
+        status,
+        payment_status,
+        razorpay_order_id
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 'pending', ?)`,
       [
         ride_id,
         passenger_id,
@@ -969,77 +1096,433 @@ router.post("/ride-requests", authenticateToken, async (req, res) => {
         no_of_seats,
         estimated_amount,
         message || null,
+        razorpayOrder.id,
       ]
     );
 
     console.log("Request Insert ID:", result.insertId);
 
-    // Send response immediately
-    res.status(200).json({
+    // -----------------------------------
+    // 9. Send response
+    // -----------------------------------
+    return res.status(200).json({
       success: true,
-      msg: "Ride request sent successfully",
+      msg: "Ride request created. Please complete payment.",
       request_id: result.insertId,
+
+      payment: {
+        razorpay_order_id: razorpayOrder.id,
+        razorpay_key_id: process.env.RAZORPAY_KEY_ID,
+        amount: Math.round(estimated_amount * 100),
+        amount_rupees: estimated_amount,
+        currency: "INR",
+      },
+
+      ride: {
+        ride_id: ride_id,
+        pickup_stop: pickup_stop,
+        no_of_seats: Number(no_of_seats),
+        amount_per_seat: Number(ride.amount_per_seat),
+        total_amount: estimated_amount,
+      },
     });
 
-    // Fire & Forget Notification
-    (async () => {
-      try {
-        const [ownerRows] = await pool.query(
-          "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
-          [ride.user_id]
-        );
-
-        const owner = ownerRows[0];
-
-        console.log("Owner:", owner);
-
-        if (!owner) {
-          console.log("Owner not found");
-          return;
-        }
-
-        if (!owner.fcm_token) {
-          console.log("Owner has no FCM token");
-          return;
-        }
-
-        console.log("Sending notification...");
-
-        await sendPushNotification(
-          owner.fcm_token,
-          "🚗 New Ride Request!",
-          `${user.fullname} requested ${no_of_seats} seat(s) from ${pickup_stop}.`,
-          {
-            type: "ride_request",
-            ride_id: ride_id.toString(),
-            request_id: result.insertId.toString(),
-            passenger_id: passenger_id.toString(),
-            no_of_seats: no_of_seats.toString(),
-            estimated_amount: estimated_amount.toString(),
-            action: "view_requests",
-          },
-          owner.id
-        );
-
-        console.log("✅ Notification sent successfully");
-      } catch (err) {
-        console.error("❌ Notification Error:", err);
-      }
-    })();
   } catch (err) {
     console.error("❌ Ride request error:", err);
 
     return res.status(500).json({
       success: false,
-      msg: "Failed to request ride",
+      msg: "Failed to create ride request",
       error: err.message,
     });
+
   } finally {
     if (conn) {
       conn.release();
     }
   }
 });
+
+
+router.post(
+  "/ride-requests/payment/verify",
+  authenticateToken,
+  async (req, res) => {
+
+    const phone = req.user.phone;
+
+    const {
+      request_id,
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature
+    } = req.body;
+
+    if (
+      !request_id ||
+      !razorpay_order_id ||
+      !razorpay_payment_id ||
+      !razorpay_signature
+    ) {
+      return res.status(400).json({
+        success: false,
+        msg: "Missing payment details",
+      });
+    }
+
+    let conn;
+
+    try {
+      conn = await pool.getConnection();
+
+      // -----------------------------------
+      // 1. Get passenger
+      // -----------------------------------
+      const [[user]] = await conn.query(
+        "SELECT id, fullname FROM users WHERE phone = ?",
+        [phone]
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          msg: "User not found",
+        });
+      }
+
+      // -----------------------------------
+      // 2. Get ride request
+      // -----------------------------------
+      const [[request]] = await conn.query(
+        `SELECT *
+         FROM ride_requests
+         WHERE id = ?
+         AND passenger_id = ?`,
+        [request_id, user.id]
+      );
+
+      if (!request) {
+        return res.status(404).json({
+          success: false,
+          msg: "Ride request not found",
+        });
+      }
+
+      // -----------------------------------
+      // 3. Already paid?
+      // -----------------------------------
+      if (request.payment_status === "paid") {
+        return res.status(400).json({
+          success: false,
+          msg: "Payment already completed",
+        });
+      }
+
+      // -----------------------------------
+      // 4. Check Razorpay Order ID
+      // -----------------------------------
+      if (request.razorpay_order_id !== razorpay_order_id) {
+        return res.status(400).json({
+          success: false,
+          msg: "Invalid Razorpay order",
+        });
+      }
+
+      // -----------------------------------
+      // 5. Verify signature
+      // -----------------------------------
+      const generatedSignature = crypto
+        .createHmac(
+          "sha256",
+          process.env.RAZORPAY_KEY_SECRET
+        )
+        .update(
+          razorpay_order_id + "|" + razorpay_payment_id
+        )
+        .digest("hex");
+
+      if (generatedSignature !== razorpay_signature) {
+
+        await conn.query(
+          `UPDATE ride_requests
+           SET payment_status = 'failed'
+           WHERE id = ?`,
+          [request_id]
+        );
+
+        return res.status(400).json({
+          success: false,
+          msg: "Payment verification failed",
+        });
+      }
+
+      // -----------------------------------
+      // 6. Update payment
+      // -----------------------------------
+      await conn.query(
+        `UPDATE ride_requests
+         SET
+           payment_status = 'paid',
+           razorpay_payment_id = ?,
+           paid_amount = ?,
+           paid_at = NOW()
+         WHERE id = ?`,
+        [
+          razorpay_payment_id,
+          request.estimated_amount,
+          request_id,
+        ]
+      );
+
+      // -----------------------------------
+      // 7. Get owner
+      // -----------------------------------
+      const [[owner]] = await conn.query(
+        `SELECT id, fullname, fcm_token
+         FROM users
+         WHERE id = ?`,
+        [request.owner_id]
+      );
+
+      // -----------------------------------
+      // 8. Response
+      // -----------------------------------
+      res.status(200).json({
+        success: true,
+        msg: "Payment successful and ride booked",
+        request_id: request_id,
+        payment_status: "paid",
+        payment_id: razorpay_payment_id,
+        amount: request.estimated_amount,
+      });
+
+      // -----------------------------------
+      // 9. Notify driver
+      // -----------------------------------
+      if (owner && owner.fcm_token) {
+        try {
+
+          await sendPushNotification(
+            owner.fcm_token,
+            "🚗 Ride Booked!",
+            `${user.fullname} booked ${request.no_of_seats} seat(s). Payment completed.`,
+            {
+              type: "ride_booking_paid",
+              ride_id: request.ride_id.toString(),
+              request_id: request_id.toString(),
+              passenger_id: user.id.toString(),
+              no_of_seats: request.no_of_seats.toString(),
+              estimated_amount: request.estimated_amount.toString(),
+              payment_status: "paid",
+              action: "view_booking",
+            },
+            owner.id
+          );
+
+          console.log("✅ Driver payment notification sent");
+
+        } catch (notificationError) {
+          console.error(
+            "❌ Notification error:",
+            notificationError
+          );
+        }
+      }
+
+    } catch (err) {
+
+      console.error(
+        "❌ Payment verification error:",
+        err
+      );
+
+      return res.status(500).json({
+        success: false,
+        msg: "Payment verification failed",
+        error: err.message,
+      });
+
+    } finally {
+
+      if (conn) {
+        conn.release();
+      }
+
+    }
+  }
+);
+// router.post("/ride-requests", authenticateToken, async (req, res) => {
+//   const phone = req.user.phone;
+//   const { ride_id, pickup_stop, no_of_seats, message } = req.body;
+
+//   if (!ride_id || !pickup_stop || !no_of_seats) {
+//     return res.status(400).json({
+//       success: false,
+//       msg: "Missing required fields",
+//     });
+//   }
+
+//   let conn;
+
+//   try {
+//     conn = await pool.getConnection();
+
+//     // Get passenger
+//     const [[user]] = await conn.query(
+//       "SELECT id, fullname FROM users WHERE phone = ?",
+//       [phone]
+//     );
+
+//     if (!user) {
+//       return res.status(404).json({
+//         success: false,
+//         msg: "User not found",
+//       });
+//     }
+
+//     const passenger_id = user.id;
+
+//     // Check duplicate request
+//     const [[existingRequest]] = await conn.query(
+//       `SELECT id, status
+//    FROM ride_requests
+//    WHERE ride_id = ?
+//      AND passenger_id = ?
+//      AND status IN ('pending', 'accepted')`,
+//       [ride_id, passenger_id]
+//     );
+
+//     if (existingRequest) {
+//       return res.status(400).json({
+//         success: false,
+//         msg:
+//           existingRequest.status === "pending"
+//             ? "You already have a pending request for this ride."
+//             : "You have already booked this ride.",
+//       });
+//     }
+
+//     // Get ride
+//     const [[ride]] = await conn.query("SELECT * FROM rides WHERE id = ?", [
+//       ride_id,
+//     ]);
+
+//     if (!ride) {
+//       return res.status(404).json({
+//         success: false,
+//         msg: "Ride not found",
+//       });
+//     }
+
+//     if (ride.ride_status !== "open") {
+//       return res.status(400).json({
+//         success: false,
+//         msg: "Ride is not open",
+//       });
+//     }
+
+//     if (Number(no_of_seats) > Number(ride.seats_available)) {
+//       return res.status(400).json({
+//         success: false,
+//         msg: "Not enough seats",
+//       });
+//     }
+
+//     const estimated_amount = Number(no_of_seats) * Number(ride.amount_per_seat);
+
+//     // Insert ride request
+//     const [result] = await conn.query(
+//       `INSERT INTO ride_requests
+//       (
+//         ride_id,
+//         passenger_id,
+//         owner_id,
+//         pickup_stop,
+//         no_of_seats,
+//         estimated_amount,
+//         message,
+//         status
+//       )
+//       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+//       [
+//         ride_id,
+//         passenger_id,
+//         ride.user_id,
+//         pickup_stop,
+//         no_of_seats,
+//         estimated_amount,
+//         message || null,
+//       ]
+//     );
+
+//     console.log("Request Insert ID:", result.insertId);
+
+//     // Send response immediately
+//     res.status(200).json({
+//       success: true,
+//       msg: "Ride request sent successfully",
+//       request_id: result.insertId,
+//     });
+
+//     // Fire & Forget Notification
+//     (async () => {
+//       try {
+//         const [ownerRows] = await pool.query(
+//           "SELECT id, fullname, fcm_token FROM users WHERE id = ?",
+//           [ride.user_id]
+//         );
+
+//         const owner = ownerRows[0];
+
+//         console.log("Owner:", owner);
+
+//         if (!owner) {
+//           console.log("Owner not found");
+//           return;
+//         }
+
+//         if (!owner.fcm_token) {
+//           console.log("Owner has no FCM token");
+//           return;
+//         }
+
+//         console.log("Sending notification...");
+
+//         await sendPushNotification(
+//           owner.fcm_token,
+//           "🚗 New Ride Request!",
+//           `${user.fullname} requested ${no_of_seats} seat(s) from ${pickup_stop}.`,
+//           {
+//             type: "ride_request",
+//             ride_id: ride_id.toString(),
+//             request_id: result.insertId.toString(),
+//             passenger_id: passenger_id.toString(),
+//             no_of_seats: no_of_seats.toString(),
+//             estimated_amount: estimated_amount.toString(),
+//             action: "view_requests",
+//           },
+//           owner.id
+//         );
+
+//         console.log("✅ Notification sent successfully");
+//       } catch (err) {
+//         console.error("❌ Notification Error:", err);
+//       }
+//     })();
+//   } catch (err) {
+//     console.error("❌ Ride request error:", err);
+
+//     return res.status(500).json({
+//       success: false,
+//       msg: "Failed to request ride",
+//       error: err.message,
+//     });
+//   } finally {
+//     if (conn) {
+//       conn.release();
+//     }
+//   }
+// });
 
 // Ride Request for Owner (Under Created Rides) + Passenger Rating
 router.get("/:rideId/requests", authenticateToken, async (req, res) => {
