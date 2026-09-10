@@ -352,6 +352,149 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
     }
   );
 
+  router.post("/admin/subscription-plans", authenticateToken, async (req, res) => {
+    const {
+      name,
+      description,
+      price,
+      no_of_rides,
+      validity_days,
+      status
+    } = req.body;
+  
+    // ------------------------------------------
+    // Validation
+    // ------------------------------------------
+    if (
+      !name ||
+      price === undefined ||
+      no_of_rides === undefined ||
+      validity_days === undefined
+    ) {
+      return res.status(400).json({
+        success: false,
+        msg: "name, price, no_of_rides and validity_days are required"
+      });
+    }
+  
+    if (Number(price) <= 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Price must be greater than 0"
+      });
+    }
+  
+    if (Number(no_of_rides) <= 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Number of rides must be greater than 0"
+      });
+    }
+  
+    if (Number(validity_days) <= 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Validity days must be greater than 0"
+      });
+    }
+  
+    const planStatus = status || "active";
+  
+    if (!["active", "inactive"].includes(planStatus)) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid status. Use active or inactive"
+      });
+    }
+  
+    let conn;
+  
+    try {
+      conn = await pool.getConnection();
+  
+      // ------------------------------------------
+      // Optional: Check duplicate plan name
+      // ------------------------------------------
+      const [[existingPlan]] = await conn.query(
+        `SELECT id
+         FROM subscription_plans
+         WHERE name = ?
+         LIMIT 1`,
+        [name.trim()]
+      );
+  
+      if (existingPlan) {
+        return res.status(400).json({
+          success: false,
+          msg: "Subscription plan with this name already exists"
+        });
+      }
+  
+      // ------------------------------------------
+      // Insert plan
+      // ------------------------------------------
+      const [result] = await conn.query(
+        `INSERT INTO subscription_plans
+        (
+          name,
+          description,
+          price,
+          no_of_rides,
+          validity_days,
+          status
+        )
+        VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          name.trim(),
+          description || null,
+          Number(price),
+          Number(no_of_rides),
+          Number(validity_days),
+          planStatus
+        ]
+      );
+  
+      // ------------------------------------------
+      // Get created plan
+      // ------------------------------------------
+      const [[plan]] = await conn.query(
+        `SELECT
+          id,
+          name,
+          description,
+          price,
+          no_of_rides,
+          validity_days,
+          status,
+          created_at,
+          updated_at
+         FROM subscription_plans
+         WHERE id = ?`,
+        [result.insertId]
+      );
+  
+      return res.status(201).json({
+        success: true,
+        msg: "Subscription plan created successfully",
+        data: plan
+      });
+  
+    } catch (err) {
+      console.error("❌ Create subscription plan error:", err);
+  
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to create subscription plan",
+        error: err.sqlMessage || err.message
+      });
+  
+    } finally {
+      if (conn) {
+        conn.release();
+      }
+    }
+  });
+
   router.get(
     "/my-subscription",
     authenticateToken,
