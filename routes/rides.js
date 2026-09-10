@@ -106,6 +106,7 @@ router.get("/:rideId/live-location", authenticateToken, async (req, res) => {
 // --- Create Ride ---
 router.post("/", authenticateToken, upload.none(), async (req, res) => {
   const { phone } = req.user;
+
   const {
     pickup_location,
     pickup_lat,
@@ -121,6 +122,7 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
     vehicle_id,
   } = req.body;
 
+  // Required fields
   if (
     !pickup_location ||
     !pickup_lat ||
@@ -134,23 +136,116 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
     !amount_per_seat ||
     !vehicle_id
   ) {
-    return res.status(400).json({ msg: "Missing required fields" });
+    return res.status(400).json({
+      success: false,
+      msg: "Missing required fields",
+    });
   }
 
-  const conn = await pool.getConnection();
-  try {
-    const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
-      phone,
-    ]);
-    if (!user) return res.status(404).json({ msg: "User not found" });
+  let conn;
 
-    await conn.query(
-      `INSERT INTO rides 
-      (user_id, pickup_location, pickup_lat, pickup_lng, drop_location, drop_lat, drop_lng, 
-       ride_date, ride_time, seats_available, amount_per_seat, pickup_note, ride_status, vehicle_id) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  try {
+    conn = await pool.getConnection();
+
+    // Start transaction
+    await conn.beginTransaction();
+
+    // --------------------------------------------------
+    // 1. GET DRIVER
+    // --------------------------------------------------
+
+    const [[user]] = await conn.query(
+      "SELECT id, fullname, phone FROM users WHERE phone = ?",
+      [phone]
+    );
+
+    if (!user) {
+      await conn.rollback();
+
+      return res.status(404).json({
+        success: false,
+        msg: "User not found",
+      });
+    }
+
+    const driver_id = user.id;
+
+    // --------------------------------------------------
+    // 2. CHECK ACTIVE SUBSCRIPTION
+    // --------------------------------------------------
+
+    const [[subscription]] = await conn.query(
+      `SELECT *
+       FROM driver_subscriptions
+       WHERE driver_id = ?
+       AND status = 'active'
+       AND remaining_rides > 0
+       AND (
+         expires_at IS NULL
+         OR expires_at >= NOW()
+       )
+       ORDER BY id DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [driver_id]
+    );
+
+    if (!subscription) {
+      await conn.rollback();
+
+      return res.status(403).json({
+        success: false,
+        msg: "You don't have any active ride subscription. Please purchase a subscription plan first.",
+        code: "NO_SUBSCRIPTION",
+      });
+    }
+
+    // --------------------------------------------------
+    // 3. CHECK VEHICLE
+    // --------------------------------------------------
+
+    const [[vehicle]] = await conn.query(
+      `SELECT id
+       FROM vehicles
+       WHERE id = ?
+       AND user_id = ?`,
+      [vehicle_id, driver_id]
+    );
+
+    if (!vehicle) {
+      await conn.rollback();
+
+      return res.status(400).json({
+        success: false,
+        msg: "Vehicle not found or vehicle does not belong to you",
+      });
+    }
+
+    // --------------------------------------------------
+    // 4. CREATE RIDE
+    // --------------------------------------------------
+
+    const [rideResult] = await conn.query(
+      `INSERT INTO rides
+      (
+        user_id,
+        pickup_location,
+        pickup_lat,
+        pickup_lng,
+        drop_location,
+        drop_lat,
+        drop_lng,
+        ride_date,
+        ride_time,
+        seats_available,
+        amount_per_seat,
+        pickup_note,
+        ride_status,
+        vehicle_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        user.id,
+        driver_id,
         pickup_location,
         pickup_lat,
         pickup_lng,
@@ -167,15 +262,85 @@ router.post("/", authenticateToken, upload.none(), async (req, res) => {
       ]
     );
 
-    res.json({ msg: "Ride created successfully" });
+    const ride_id = rideResult.insertId;
+
+    // --------------------------------------------------
+    // 5. DEDUCT ONE RIDE CREDIT
+    // --------------------------------------------------
+
+    const [creditResult] = await conn.query(
+      `UPDATE driver_subscriptions
+       SET
+         used_rides = used_rides + 1,
+         remaining_rides = remaining_rides - 1
+       WHERE id = ?
+       AND driver_id = ?
+       AND status = 'active'
+       AND remaining_rides > 0`,
+      [
+        subscription.id,
+        driver_id,
+      ]
+    );
+
+    if (creditResult.affectedRows === 0) {
+      await conn.rollback();
+
+      return res.status(400).json({
+        success: false,
+        msg: "Unable to deduct ride credit. Please try again.",
+      });
+    }
+
+    // --------------------------------------------------
+    // 6. COMMIT
+    // --------------------------------------------------
+
+    await conn.commit();
+
+    // --------------------------------------------------
+    // 7. SUCCESS RESPONSE
+    // --------------------------------------------------
+
+    return res.status(200).json({
+      success: true,
+      msg: "Ride created successfully",
+      data: {
+        ride_id: ride_id,
+
+        subscription: {
+          subscription_id: subscription.id,
+          plan_name: subscription.plan_name,
+          total_rides: subscription.total_rides,
+          used_rides:
+            Number(subscription.used_rides) + 1,
+          remaining_rides:
+            Number(subscription.remaining_rides) - 1,
+        },
+      },
+    });
+
   } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      msg: `Failed to create ride: ${err.sqlMessage || err.message}`,
+
+    if (conn) {
+      await conn.rollback();
+    }
+
+    console.error("Create ride error:", err);
+
+    return res.status(500).json({
+      success: false,
+      msg: `Failed to create ride: ${
+        err.sqlMessage || err.message
+      }`,
       error: err.sqlMessage || err.message,
     });
+
   } finally {
-    conn.release();
+
+    if (conn) {
+      conn.release();
+    }
   }
 });
 // router.post("/", authenticateToken, upload.none(), async (req, res) => {
