@@ -91,26 +91,24 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
     }
   );
 
-  router.get(
-    "/subscription-plans/:id",
+  router.post(
+    "/subscription-plans/:id/purchase",
     authenticateToken,
     async (req, res) => {
-      try {
-        const { id } = req.params;
+      let conn;
   
-        const [[plan]] = await pool.query(
-          `SELECT
-            id,
-            name,
-            description,
-            price,
-            no_of_rides,
-            validity_days,
-            status
+      try {
+        const driver_id = req.user.id;
+        const plan_id = req.params.id;
+  
+        conn = await pool.getConnection();
+  
+        const [[plan]] = await conn.query(
+          `SELECT *
            FROM subscription_plans
            WHERE id = ?
            AND status = 'active'`,
-          [id]
+          [plan_id]
         );
   
         if (!plan) {
@@ -120,19 +118,71 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
           });
         }
   
+        if (Number(plan.no_of_rides) <= 0) {
+          return res.status(400).json({
+            success: false,
+            msg: "Invalid subscription plan",
+          });
+        }
+  
+        // Create Razorpay order
+        const razorpayOrder = await razorpay.orders.create({
+          amount: Math.round(Number(plan.price) * 100),
+          currency: "INR",
+          receipt: `SUB_${driver_id}_${Date.now()}`,
+        });
+  
+        // Save pending subscription
+        const [result] = await conn.query(
+          `INSERT INTO driver_subscriptions
+          (
+            driver_id,
+            plan_id,
+            plan_name,
+            amount,
+            total_rides,
+            used_rides,
+            remaining_rides,
+            payment_id,
+            razorpay_order_id,
+            status
+          )
+          VALUES (?, ?, ?, ?, ?, 0, 0, NULL, ?, 'pending')`,
+          [
+            driver_id,
+            plan.id,
+            plan.name,
+            plan.price,
+            plan.no_of_rides,
+            razorpayOrder.id,
+          ]
+        );
+  
         return res.status(200).json({
           success: true,
-          msg: "Subscription plan fetched successfully",
-          data: plan,
+          msg: "Subscription payment order created",
+          data: {
+            subscription_id: result.insertId,
+            plan_id: plan.id,
+            plan_name: plan.name,
+            amount: Number(plan.price),
+            no_of_rides: plan.no_of_rides,
+            validity_days: plan.validity_days,
+            razorpay_order_id: razorpayOrder.id,
+            razorpay_key_id: process.env.RAZORPAY_KEY_ID,
+            currency: "INR",
+          },
         });
       } catch (err) {
-        console.error("Get subscription plan error:", err);
+        console.error("Purchase subscription error:", err);
   
         return res.status(500).json({
           success: false,
-          msg: "Failed to get subscription plan",
+          msg: "Failed to create subscription payment",
           error: err.message,
         });
+      } finally {
+        if (conn) conn.release();
       }
     }
   );
