@@ -1,8 +1,9 @@
 const express = require("express");
 const router = express.Router();
-
-const pool = require("../config/db");
+const { pool } = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
+const upload = require("../middleware/upload.js");
+
 
 
 router.post(
