@@ -98,7 +98,7 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
       let conn;
   
       try {
-        const phone = req.user;
+        const { phone } = req.user;
         const plan_id = req.params.id;
         
   
