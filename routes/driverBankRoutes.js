@@ -11,7 +11,19 @@ router.post(
     authenticateToken,
     async (req, res) => {
       try {
-        const driver_id = req.user.id;
+        const { phone } = req.user;
+        const conn = await pool.getConnection();
+        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+            phone,
+          ]);
+    
+          if (!user) {
+            return res.status(404).json({
+              success: false,
+              message: "User not found",
+            });
+          }
+        const driver_id = user.id;
   
         const {
           account_holder_name,
@@ -97,7 +109,19 @@ router.post(
     authenticateToken,
     async (req, res) => {
       try {
-        const driver_id = req.user.id;
+        const { phone } = req.user;
+        const conn = await pool.getConnection();
+        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+            phone,
+          ]);
+    
+          if (!user) {
+            return res.status(404).json({
+              success: false,
+              message: "User not found",
+            });
+          }
+        const driver_id = user.id;
   
         const [rows] = await pool.query(
           `SELECT
@@ -152,7 +176,19 @@ router.post(
     authenticateToken,
     async (req, res) => {
       try {
-        const driver_id = req.user.id;
+        const { phone } = req.user;
+        const conn = await pool.getConnection();
+        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+            phone,
+          ]);
+    
+          if (!user) {
+            return res.status(404).json({
+              success: false,
+              message: "User not found",
+            });
+          }
+        const driver_id = user.id;
         const bank_id = req.params.id;
   
         const [[bank]] = await pool.query(
@@ -207,7 +243,19 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
-      const driver_id = req.user.id;
+        const { phone } = req.user;
+        const conn = await pool.getConnection();
+        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+            phone,
+          ]);
+    
+          if (!user) {
+            return res.status(404).json({
+              success: false,
+              message: "User not found",
+            });
+          }
+        const driver_id = user.id;
       const bank_id = req.params.id;
 
       const [[bank]] = await pool.query(
@@ -263,7 +311,19 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
-      const driver_id = req.user.id;
+        const { phone } = req.user;
+        const conn = await pool.getConnection();
+        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+            phone,
+          ]);
+    
+          if (!user) {
+            return res.status(404).json({
+              success: false,
+              message: "User not found",
+            });
+          }
+        const driver_id = user.id;
       const bank_id = req.params.id;
 
       const [[bank]] = await pool.query(
@@ -319,7 +379,19 @@ router.get(
   authenticateToken,
   async (req, res) => {
     try {
-      const driver_id = req.user.id;
+        const { phone } = req.user;
+        const conn = await pool.getConnection();
+        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+            phone,
+          ]);
+    
+          if (!user) {
+            return res.status(404).json({
+              success: false,
+              message: "User not found",
+            });
+          }
+        const driver_id = user.id;
       const bank_id = req.params.id;
 
       const [[bank]] = await pool.query(
@@ -374,7 +446,19 @@ router.put(
     authenticateToken,
     async (req, res) => {
       try {
-        const driver_id = req.user.id;
+        const { phone } = req.user;
+        const conn = await pool.getConnection();
+        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+            phone,
+          ]);
+    
+          if (!user) {
+            return res.status(404).json({
+              success: false,
+              message: "User not found",
+            });
+          }
+        const driver_id = user.id;
         const bank_id = req.params.id;
   
         const {
@@ -456,7 +540,19 @@ router.put(
     authenticateToken,
     async (req, res) => {
       try {
-        const driver_id = req.user.id;
+        const { phone } = req.user;
+        const conn = await pool.getConnection();
+        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+            phone,
+          ]);
+    
+          if (!user) {
+            return res.status(404).json({
+              success: false,
+              message: "User not found",
+            });
+          }
+        const driver_id = user.id;
         const bank_id = req.params.id;
   
         const [result] = await pool.query(
