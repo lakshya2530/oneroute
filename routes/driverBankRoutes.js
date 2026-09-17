@@ -240,7 +240,7 @@ router.post(
 
   router.get(
     "/admin/driver-settlements/:id",
-    authenticateToken,
+  //  authenticateToken,
     async (req, res) => {
   
       const settlementId = req.params.id;
