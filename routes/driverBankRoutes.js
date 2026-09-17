@@ -239,6 +239,81 @@ router.post(
   );
 
   router.get(
+    "/admin/driver-settlements/:id",
+    authenticateToken,
+    async (req, res) => {
+  
+      const settlementId = req.params.id;
+  
+      let conn;
+  
+      try {
+  
+        conn = await pool.getConnection();
+  
+        const [[settlement]] = await conn.query(
+          `SELECT
+              ds.*,
+  
+              driver.fullname AS driver_name,
+              driver.phone AS driver_phone,
+  
+              rr.ride_id,
+              rr.passenger_id,
+              rr.pickup_stop,
+              rr.no_of_seats,
+              rr.estimated_amount,
+              rr.payment_status
+  
+           FROM driver_settlements ds
+  
+           LEFT JOIN users driver
+             ON driver.id = ds.driver_id
+  
+           LEFT JOIN ride_requests rr
+             ON rr.id = ds.ride_request_id
+  
+           WHERE ds.id = ?`,
+          [settlementId]
+        );
+  
+        if (!settlement) {
+          return res.status(404).json({
+            success: false,
+            msg: "Settlement not found"
+          });
+        }
+  
+        return res.status(200).json({
+          success: true,
+          msg: "Settlement details fetched successfully",
+          data: settlement
+        });
+  
+      } catch (err) {
+  
+        console.error(
+          "❌ Settlement detail error:",
+          err
+        );
+  
+        return res.status(500).json({
+          success: false,
+          msg: "Failed to fetch settlement",
+          error: err.sqlMessage || err.message
+        });
+  
+      } finally {
+  
+        if (conn) {
+          conn.release();
+        }
+  
+      }
+    }
+  );
+
+  router.get(
     "/admin/driver-settlements",
    // authenticateToken,
     async (req, res) => {
