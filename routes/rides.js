@@ -1461,6 +1461,59 @@ router.post(
         amount: request.estimated_amount,
       });
 
+      // ==========================================
+  // CREATE DRIVER SETTLEMENT
+  // ==========================================
+
+  const grossAmount = Number(request.estimated_amount);
+
+  // Example commission = 10%
+  // Later admin setting se dynamic kar sakte ho
+  const commissionPercentage = 10;
+
+  const commissionAmount =
+    (grossAmount * commissionPercentage) / 100;
+
+  const driverAmount =
+    grossAmount - commissionAmount;
+
+    // Check settlement already exists
+    const [[existingSettlement]] = await conn.query(
+      `SELECT id
+      FROM driver_settlements
+      WHERE ride_request_id = ?
+      LIMIT 1`,
+      [request_id]
+    );
+
+    if (!existingSettlement) {
+
+      await conn.query(
+        `INSERT INTO driver_settlements
+        (
+          driver_id,
+          ride_request_id,
+          gross_amount,
+          commission_amount,
+          driver_amount,
+          status
+        )
+        VALUES (?, ?, ?, ?, ?, 'pending')`,
+        [
+          request.owner_id,
+          request_id,
+          grossAmount,
+          commissionAmount,
+          driverAmount
+        ]
+      );
+
+      console.log(
+        "✅ Driver settlement created for request:",
+        request_id
+      );
+    }
+
       // -----------------------------------
       // 9. Notify driver
       // -----------------------------------

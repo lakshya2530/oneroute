@@ -238,6 +238,219 @@ router.post(
     }
   );
 
+  router.get(
+    "/admin/driver-settlements",
+    authenticateToken,
+    async (req, res) => {
+  
+      let conn;
+  
+      try {
+  
+        conn = await pool.getConnection();
+  
+        const [rows] = await conn.query(
+          `SELECT
+              ds.id,
+              ds.driver_id,
+              driver.fullname AS driver_name,
+              driver.phone AS driver_phone,
+  
+              ds.ride_request_id,
+  
+              ds.gross_amount,
+              ds.commission_amount,
+              ds.driver_amount,
+  
+              ds.status,
+              ds.payment_reference,
+              ds.paid_at,
+              ds.notes,
+  
+              ds.created_at,
+              ds.updated_at
+  
+           FROM driver_settlements ds
+  
+           LEFT JOIN users driver
+             ON driver.id = ds.driver_id
+  
+           ORDER BY ds.id DESC`
+        );
+  
+        return res.status(200).json({
+          success: true,
+          msg: "Driver settlements fetched successfully",
+          data: rows
+        });
+  
+      } catch (err) {
+  
+        console.error(
+          "❌ Get settlements error:",
+          err
+        );
+  
+        return res.status(500).json({
+          success: false,
+          msg: "Failed to fetch driver settlements",
+          error: err.sqlMessage || err.message
+        });
+  
+      } finally {
+  
+        if (conn) {
+          conn.release();
+        }
+  
+      }
+    }
+  );
+
+  router.patch(
+    "/admin/driver-settlements/:id/paid",
+    authenticateToken,
+    async (req, res) => {
+  
+      const settlementId = req.params.id;
+  
+      const {
+        payment_reference,
+        notes
+      } = req.body;
+  
+      if (!payment_reference) {
+        return res.status(400).json({
+          success: false,
+          msg: "Payment reference is required"
+        });
+      }
+  
+      let conn;
+  
+      try {
+  
+        conn = await pool.getConnection();
+  
+        await conn.beginTransaction();
+  
+        // ==========================================
+        // 1. Get settlement
+        // ==========================================
+  
+        const [[settlement]] = await conn.query(
+          `SELECT *
+           FROM driver_settlements
+           WHERE id = ?
+           FOR UPDATE`,
+          [settlementId]
+        );
+  
+        if (!settlement) {
+  
+          await conn.rollback();
+  
+          return res.status(404).json({
+            success: false,
+            msg: "Settlement not found"
+          });
+        }
+  
+        // ==========================================
+        // 2. Check already paid
+        // ==========================================
+  
+        if (settlement.status === "paid") {
+  
+          await conn.rollback();
+  
+          return res.status(400).json({
+            success: false,
+            msg: "Settlement is already marked as paid"
+          });
+        }
+  
+        // ==========================================
+        // 3. Update settlement
+        // ==========================================
+  
+        await conn.query(
+          `UPDATE driver_settlements
+           SET
+             status = 'paid',
+             payment_reference = ?,
+             paid_at = NOW(),
+             notes = ?
+           WHERE id = ?`,
+          [
+            payment_reference,
+            notes || null,
+            settlementId
+          ]
+        );
+  
+        await conn.commit();
+  
+        // ==========================================
+        // 4. Get updated settlement
+        // ==========================================
+  
+        const [[updatedSettlement]] = await conn.query(
+          `SELECT
+              ds.id,
+              ds.driver_id,
+              u.fullname AS driver_name,
+              u.phone AS driver_phone,
+              ds.ride_request_id,
+              ds.gross_amount,
+              ds.commission_amount,
+              ds.driver_amount,
+              ds.status,
+              ds.payment_reference,
+              ds.paid_at,
+              ds.notes,
+              ds.created_at,
+              ds.updated_at
+           FROM driver_settlements ds
+           LEFT JOIN users u
+             ON u.id = ds.driver_id
+           WHERE ds.id = ?`,
+          [settlementId]
+        );
+  
+        return res.status(200).json({
+          success: true,
+          msg: "Driver settlement marked as paid",
+          data: updatedSettlement
+        });
+  
+      } catch (err) {
+  
+        if (conn) {
+          await conn.rollback();
+        }
+  
+        console.error(
+          "❌ Mark settlement paid error:",
+          err
+        );
+  
+        return res.status(500).json({
+          success: false,
+          msg: "Failed to mark settlement as paid",
+          error: err.sqlMessage || err.message
+        });
+  
+      } finally {
+  
+        if (conn) {
+          conn.release();
+        }
+  
+      }
+    }
+  );
+
 router.get(
   "/driver/bank-details/:id",
   authenticateToken,
