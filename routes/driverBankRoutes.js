@@ -319,8 +319,8 @@ router.post(
 // ==========================================
 
 router.put(
-  "/admin/subscription-plans/:id",
-  authenticateToken,
+  "/subscription-plans/:id",
+  //authenticateToken,
   async (req, res) => {
 
     const planId = req.params.id;
