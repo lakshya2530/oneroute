@@ -313,6 +313,194 @@ router.post(
     }
   );
 
+  // ==========================================
+// ADMIN - UPDATE SUBSCRIPTION PLAN
+// PUT /api/admin/subscription-plans/:id
+// ==========================================
+
+router.put(
+  "/admin/subscription-plans/:id",
+  authenticateToken,
+  async (req, res) => {
+
+    const planId = req.params.id;
+
+    const {
+      name,
+      description,
+      price,
+      no_of_rides,
+      validity_days,
+      status
+    } = req.body;
+
+    // ------------------------------------------
+    // Validation
+    // ------------------------------------------
+
+    if (
+      !name ||
+      price === undefined ||
+      no_of_rides === undefined ||
+      validity_days === undefined
+    ) {
+      return res.status(400).json({
+        success: false,
+        msg: "name, price, no_of_rides and validity_days are required"
+      });
+    }
+
+    if (Number(price) <= 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Price must be greater than 0"
+      });
+    }
+
+    if (Number(no_of_rides) <= 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Number of rides must be greater than 0"
+      });
+    }
+
+    if (Number(validity_days) <= 0) {
+      return res.status(400).json({
+        success: false,
+        msg: "Validity days must be greater than 0"
+      });
+    }
+
+    const planStatus = status || "active";
+
+    if (!["active", "inactive"].includes(planStatus)) {
+      return res.status(400).json({
+        success: false,
+        msg: "Invalid status. Use active or inactive"
+      });
+    }
+
+    let conn;
+
+    try {
+
+      conn = await pool.getConnection();
+
+      // ------------------------------------------
+      // 1. Check plan exists
+      // ------------------------------------------
+
+      const [[plan]] = await conn.query(
+        `SELECT *
+         FROM subscription_plans
+         WHERE id = ?`,
+        [planId]
+      );
+
+      if (!plan) {
+        return res.status(404).json({
+          success: false,
+          msg: "Subscription plan not found"
+        });
+      }
+
+      // ------------------------------------------
+      // 2. Check duplicate name
+      // ------------------------------------------
+
+      const [[duplicate]] = await conn.query(
+        `SELECT id
+         FROM subscription_plans
+         WHERE name = ?
+         AND id != ?
+         LIMIT 1`,
+        [
+          name.trim(),
+          planId
+        ]
+      );
+
+      if (duplicate) {
+        return res.status(400).json({
+          success: false,
+          msg: "Another subscription plan with this name already exists"
+        });
+      }
+
+      // ------------------------------------------
+      // 3. Update plan
+      // ------------------------------------------
+
+      await conn.query(
+        `UPDATE subscription_plans
+         SET
+           name = ?,
+           description = ?,
+           price = ?,
+           no_of_rides = ?,
+           validity_days = ?,
+           status = ?
+         WHERE id = ?`,
+        [
+          name.trim(),
+          description || null,
+          Number(price),
+          Number(no_of_rides),
+          Number(validity_days),
+          planStatus,
+          planId
+        ]
+      );
+
+      // ------------------------------------------
+      // 4. Get updated plan
+      // ------------------------------------------
+
+      const [[updatedPlan]] = await conn.query(
+        `SELECT
+           id,
+           name,
+           description,
+           price,
+           no_of_rides,
+           validity_days,
+           status,
+           created_at,
+           updated_at
+         FROM subscription_plans
+         WHERE id = ?`,
+        [planId]
+      );
+
+      return res.status(200).json({
+        success: true,
+        msg: "Subscription plan updated successfully",
+        data: updatedPlan
+      });
+
+    } catch (err) {
+
+      console.error(
+        "❌ Update subscription plan error:",
+        err
+      );
+
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to update subscription plan",
+        error: err.sqlMessage || err.message
+      });
+
+    } finally {
+
+      if (conn) {
+        conn.release();
+      }
+
+    }
+  }
+);
+
   router.get(
     "/admin/driver-settlements",
    // authenticateToken,
