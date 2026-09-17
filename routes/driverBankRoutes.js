@@ -240,7 +240,7 @@ router.post(
 
   router.get(
     "/admin/driver-settlements",
-    authenticateToken,
+   // authenticateToken,
     async (req, res) => {
   
       let conn;
@@ -309,7 +309,7 @@ router.post(
 
   router.patch(
     "/admin/driver-settlements/:id/paid",
-    authenticateToken,
+   // authenticateToken,
     async (req, res) => {
   
       const settlementId = req.params.id;
