@@ -204,22 +204,12 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
     "/subscription-plans/payment/verify",
     authenticateToken,
     async (req, res) => {
+  
       let conn;
   
       try {
+  
         const { phone } = req.user;
-        const conn = await pool.getConnection();
-        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
-            phone,
-          ]);
-    
-          if (!user) {
-            return res.status(404).json({
-              success: false,
-              message: "User not found",
-            });
-          }
-        const driver_id = user.id;
   
         const {
           subscription_id,
@@ -227,6 +217,10 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
           razorpay_payment_id,
           razorpay_signature,
         } = req.body;
+  
+        // ------------------------------------------
+        // Validate payment details
+        // ------------------------------------------
   
         if (
           !subscription_id ||
@@ -239,6 +233,34 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
             msg: "Missing payment details",
           });
         }
+  
+        // ------------------------------------------
+        // Get DB connection
+        // ------------------------------------------
+  
+        conn = await pool.getConnection();
+  
+        // ------------------------------------------
+        // Get driver
+        // ------------------------------------------
+  
+        const [[user]] = await conn.query(
+          "SELECT id, fullname, phone FROM users WHERE phone = ?",
+          [phone]
+        );
+  
+        if (!user) {
+          return res.status(404).json({
+            success: false,
+            msg: "User not found",
+          });
+        }
+  
+        const driver_id = user.id;
+  
+        // ------------------------------------------
+        // Verify Razorpay signature
+        // ------------------------------------------
   
         const generatedSignature = crypto
           .createHmac(
@@ -257,9 +279,15 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
           });
         }
   
-        conn = await pool.getConnection();
+        // ------------------------------------------
+        // Start transaction
+        // ------------------------------------------
   
         await conn.beginTransaction();
+  
+        // ------------------------------------------
+        // Get subscription
+        // ------------------------------------------
   
         const [[subscription]] = await conn.query(
           `SELECT *
@@ -267,10 +295,14 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
            WHERE id = ?
            AND driver_id = ?
            FOR UPDATE`,
-          [subscription_id, driver_id]
+          [
+            subscription_id,
+            driver_id
+          ]
         );
   
         if (!subscription) {
+  
           await conn.rollback();
   
           return res.status(404).json({
@@ -279,7 +311,12 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
           });
         }
   
+        // ------------------------------------------
+        // Check already active
+        // ------------------------------------------
+  
         if (subscription.status === "active") {
+  
           await conn.rollback();
   
           return res.status(400).json({
@@ -288,21 +325,39 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
           });
         }
   
+        // ------------------------------------------
+        // Calculate expiry
+        // ------------------------------------------
+  
         const startsAt = new Date();
   
         let expiresAt = null;
   
+        /*
+         * IMPORTANT:
+         * driver_subscriptions table mein
+         * validity_days column hona chahiye.
+         */
+  
         if (subscription.validity_days) {
+  
           expiresAt = new Date(startsAt);
+  
           expiresAt.setDate(
-            expiresAt.getDate() + Number(subscription.validity_days)
+            expiresAt.getDate() +
+            Number(subscription.validity_days)
           );
         }
+  
+        // ------------------------------------------
+        // Activate subscription
+        // ------------------------------------------
   
         await conn.query(
           `UPDATE driver_subscriptions
            SET
              payment_id = ?,
+             razorpay_order_id = ?,
              status = 'active',
              total_rides = ?,
              used_rides = 0,
@@ -312,45 +367,230 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
            WHERE id = ?`,
           [
             razorpay_payment_id,
+            razorpay_order_id,
             subscription.total_rides,
             subscription.total_rides,
             startsAt,
             expiresAt,
-            subscription_id,
+            subscription_id
           ]
         );
   
+        // ------------------------------------------
+        // Commit
+        // ------------------------------------------
+  
         await conn.commit();
+  
+        // ------------------------------------------
+        // Success response
+        // ------------------------------------------
   
         return res.status(200).json({
           success: true,
           msg: "Subscription activated successfully",
           data: {
             subscription_id: subscription.id,
+            driver_id: driver_id,
+            plan_id: subscription.plan_id,
             plan_name: subscription.plan_name,
+            amount: subscription.amount,
             total_rides: subscription.total_rides,
+            used_rides: 0,
             remaining_rides: subscription.total_rides,
+            starts_at: startsAt,
             expires_at: expiresAt,
             payment_id: razorpay_payment_id,
-          },
+            razorpay_order_id: razorpay_order_id,
+            status: "active"
+          }
         });
+  
       } catch (err) {
+  
         if (conn) {
-          await conn.rollback();
+          try {
+            await conn.rollback();
+          } catch (rollbackError) {
+            console.error(
+              "Rollback error:",
+              rollbackError
+            );
+          }
         }
   
-        console.error("Subscription payment verification error:", err);
+        console.error(
+          "Subscription payment verification error:",
+          err
+        );
   
         return res.status(500).json({
           success: false,
           msg: "Payment verification failed",
-          error: err.message,
+          error: err.sqlMessage || err.message,
         });
+  
       } finally {
-        if (conn) conn.release();
+  
+        if (conn) {
+          conn.release();
+        }
+  
       }
     }
   );
+  
+  // router.post(
+  //   "/subscription-plans/payment/verify",
+  //   authenticateToken,
+  //   async (req, res) => {
+  //     let conn;
+  
+  //     try {
+  //       const { phone } = req.user;
+  //       const conn = await pool.getConnection();
+  //       const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+  //           phone,
+  //         ]);
+    
+  //         if (!user) {
+  //           return res.status(404).json({
+  //             success: false,
+  //             message: "User not found",
+  //           });
+  //         }
+  //       const driver_id = user.id;
+  
+  //       const {
+  //         subscription_id,
+  //         razorpay_order_id,
+  //         razorpay_payment_id,
+  //         razorpay_signature,
+  //       } = req.body;
+  
+  //       if (
+  //         !subscription_id ||
+  //         !razorpay_order_id ||
+  //         !razorpay_payment_id ||
+  //         !razorpay_signature
+  //       ) {
+  //         return res.status(400).json({
+  //           success: false,
+  //           msg: "Missing payment details",
+  //         });
+  //       }
+  
+  //       const generatedSignature = crypto
+  //         .createHmac(
+  //           "sha256",
+  //           process.env.RAZORPAY_KEY_SECRET
+  //         )
+  //         .update(
+  //           razorpay_order_id + "|" + razorpay_payment_id
+  //         )
+  //         .digest("hex");
+  
+  //       if (generatedSignature !== razorpay_signature) {
+  //         return res.status(400).json({
+  //           success: false,
+  //           msg: "Invalid payment signature",
+  //         });
+  //       }
+  
+  //       conn = await pool.getConnection();
+  
+  //       await conn.beginTransaction();
+  
+  //       const [[subscription]] = await conn.query(
+  //         `SELECT *
+  //          FROM driver_subscriptions
+  //          WHERE id = ?
+  //          AND driver_id = ?
+  //          FOR UPDATE`,
+  //         [subscription_id, driver_id]
+  //       );
+  
+  //       if (!subscription) {
+  //         await conn.rollback();
+  
+  //         return res.status(404).json({
+  //           success: false,
+  //           msg: "Subscription not found",
+  //         });
+  //       }
+  
+  //       if (subscription.status === "active") {
+  //         await conn.rollback();
+  
+  //         return res.status(400).json({
+  //           success: false,
+  //           msg: "Subscription already activated",
+  //         });
+  //       }
+  
+  //       const startsAt = new Date();
+  
+  //       let expiresAt = null;
+  
+  //       if (subscription.validity_days) {
+  //         expiresAt = new Date(startsAt);
+  //         expiresAt.setDate(
+  //           expiresAt.getDate() + Number(subscription.validity_days)
+  //         );
+  //       }
+  
+  //       await conn.query(
+  //         `UPDATE driver_subscriptions
+  //          SET
+  //            payment_id = ?,
+  //            status = 'active',
+  //            total_rides = ?,
+  //            used_rides = 0,
+  //            remaining_rides = ?,
+  //            starts_at = ?,
+  //            expires_at = ?
+  //          WHERE id = ?`,
+  //         [
+  //           razorpay_payment_id,
+  //           subscription.total_rides,
+  //           subscription.total_rides,
+  //           startsAt,
+  //           expiresAt,
+  //           subscription_id,
+  //         ]
+  //       );
+  
+  //       await conn.commit();
+  
+  //       return res.status(200).json({
+  //         success: true,
+  //         msg: "Subscription activated successfully",
+  //         data: {
+  //           subscription_id: subscription.id,
+  //           plan_name: subscription.plan_name,
+  //           total_rides: subscription.total_rides,
+  //           remaining_rides: subscription.total_rides,
+  //           expires_at: expiresAt,
+  //           payment_id: razorpay_payment_id,
+  //         },
+  //       });
+  //     } catch (err) {
+  //       if (conn) {
+  //         await conn.rollback();
+  //       }
+  
+  //       console.error("Subscription payment verification error:", err);
+  
+  //       return res.status(500).json({
+  //         success: false,
+  //         msg: "Payment verification failed",
+  //         error: err.message,
+  //       });
+  //     } finally {
+  //       if (conn) conn.release();
+  //     }
+  //   }
+  // );
 
   router.post("/subscription-plans", authenticateToken, async (req, res) => {
     const {
