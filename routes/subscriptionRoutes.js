@@ -288,7 +288,8 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
         // ------------------------------------------
         // Get subscription
         // ------------------------------------------
-  
+  console.log(subscription_id,'s');
+  console.log(driver_id,'d');
         const [[subscription]] = await conn.query(
           `SELECT *
            FROM driver_subscriptions
@@ -439,7 +440,7 @@ router.get("/subscription-plans", authenticateToken, async (req, res) => {
       }
     }
   );
-  
+
   // router.post(
   //   "/subscription-plans/payment/verify",
   //   authenticateToken,
