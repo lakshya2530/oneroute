@@ -105,16 +105,19 @@ router.post(
       } catch (razorpayError) {
         await conn.rollback();
 
-        console.error(
-          "Razorpay linked account error:",
-          razorpayError
-        );
+    console.error("========== RAZORPAY ERROR ==========");
+    console.error("Status:", razorpayError.statusCode);
+    console.error("Message:", razorpayError.message);
+    console.error("Error:", razorpayError.error);
+    console.error("Full:", JSON.stringify(razorpayError, null, 2));
+    console.error("====================================");
 
         return res.status(400).json({
           success: false,
-          msg: "Unable to create Razorpay linked account",
-          error: razorpayError.error?.description ||
-                 razorpayError.message,
+          msg: "Razorpay linked account creation failed",
+          razorpay_status: razorpayError.statusCode || null,
+          error: razorpayError.error || null,
+          message: razorpayError.message || null,
         });
       }
 
