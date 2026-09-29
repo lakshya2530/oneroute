@@ -39,6 +39,8 @@ const upload = multer({ storage });
 //         res.json({ id: result.insertId, ...vendor });
 //     });
 // });
+
+
 router.post('/vendor-register', upload.single('shop_certificate'), (req, res) => {
   const {
       full_name, age, gender, email, phone,

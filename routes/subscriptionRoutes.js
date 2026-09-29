@@ -7,7 +7,110 @@ const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
 const razorpay = require("../config/razorpay");
 
+router.put(
+  "/admin/settings/max-publish-rides",
+  authenticateToken,
+  async (req, res) => {
+    let conn;
 
+    try {
+      const { max_publish_rides } = req.body;
+
+      if (
+        max_publish_rides === undefined ||
+        max_publish_rides === null ||
+        max_publish_rides === ""
+      ) {
+        return res.status(400).json({
+          success: false,
+          msg: "max_publish_rides is required"
+        });
+      }
+
+      const limit = Number(max_publish_rides);
+
+      if (!Number.isInteger(limit) || limit < 1) {
+        return res.status(400).json({
+          success: false,
+          msg: "max_publish_rides must be a positive integer"
+        });
+      }
+
+      conn = await pool.getConnection();
+
+      await conn.query(
+        `INSERT INTO app_settings
+          (setting_key, setting_value)
+         VALUES ('max_publish_rides', ?)
+         ON DUPLICATE KEY UPDATE
+          setting_value = VALUES(setting_value)`,
+        [limit.toString()]
+      );
+
+      return res.status(200).json({
+        success: true,
+        msg: "Maximum publish rides setting updated successfully",
+        data: {
+          max_publish_rides: limit
+        }
+      });
+
+    } catch (err) {
+      console.error("Update publish ride setting error:", err);
+
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to update publish ride setting",
+        error: err.sqlMessage || err.message
+      });
+
+    } finally {
+      if (conn) conn.release();
+    }
+  }
+);
+
+router.get(
+  "/admin/settings/max-publish-rides",
+  authenticateToken,
+  async (req, res) => {
+    let conn;
+
+    try {
+      conn = await pool.getConnection();
+
+      const [[setting]] = await conn.query(
+        `SELECT setting_value
+         FROM app_settings
+         WHERE setting_key = 'max_publish_rides'
+         LIMIT 1`
+      );
+
+      const maxPublishRides = setting
+        ? Number(setting.setting_value)
+        : 2;
+
+      return res.status(200).json({
+        success: true,
+        data: {
+          max_publish_rides: maxPublishRides
+        }
+      });
+
+    } catch (err) {
+      console.error("Get publish ride setting error:", err);
+
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to get publish ride setting",
+        error: err.sqlMessage || err.message
+      });
+
+    } finally {
+      if (conn) conn.release();
+    }
+  }
+);
 
 
 router.get("/subscription-plans", authenticateToken, async (req, res) => {
