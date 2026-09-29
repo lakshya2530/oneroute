@@ -6,6 +6,8 @@ const upload = require("../middleware/upload.js");
 const authenticateToken = require("../middleware/auth.js");
 const sendPushNotification = require("../utils/pushNotification.js");
 const admin = require("../config/firebase.js");
+const razorpay = require("../config/razorpay");
+
 const STATIC_OTP = "1234";
 
 // --- Send OTP ---
