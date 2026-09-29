@@ -103,7 +103,13 @@ router.get("/:rideId/live-location", authenticateToken, async (req, res) => {
   }
 });
 
+
+// =====================================================
+// COMMISSION
+// =====================================================
+
 async function getCommissionPercentage(conn) {
+
   const [[setting]] = await conn.query(
     `SELECT value
      FROM commission_settings
@@ -115,16 +121,26 @@ async function getCommissionPercentage(conn) {
     return 10;
   }
 
-  const percentage = Number(setting.value);
+  const commission = Number(setting.value);
 
-  if (isNaN(percentage) || percentage < 0 || percentage > 100) {
+  if (
+    isNaN(commission) ||
+    commission < 0 ||
+    commission > 100
+  ) {
     return 10;
   }
 
-  return percentage;
+  return commission;
 }
 
+
+// =====================================================
+// WALLET
+// =====================================================
+
 async function getOrCreateWallet(conn, userId) {
+
   let [[wallet]] = await conn.query(
     `SELECT id, user_id, balance
      FROM wallets
@@ -134,8 +150,10 @@ async function getOrCreateWallet(conn, userId) {
   );
 
   if (!wallet) {
+
     await conn.query(
-      `INSERT INTO wallets (user_id, balance)
+      `INSERT INTO wallets
+       (user_id, balance)
        VALUES (?, 0)`,
       [userId]
     );
@@ -152,10 +170,1355 @@ async function getOrCreateWallet(conn, userId) {
   return wallet;
 }
 
+
+// =====================================================
+// API 1
+// CREATE RIDE REQUEST
+// CASH + ONLINE
+// =====================================================
+
+router.post(
+  "/ride-requests",
+  authenticateToken,
+  async (req, res) => {
+
+    let conn;
+
+    try {
+
+      const { phone } = req.user;
+
+      const {
+        ride_id,
+        pickup_stop,
+        no_of_seats,
+        message,
+        payment_method
+      } = req.body;
+
+
+      // -----------------------------------------
+      // VALIDATION
+      // -----------------------------------------
+
+      if (
+        !ride_id ||
+        !no_of_seats ||
+        !payment_method
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          msg: "ride_id, no_of_seats and payment_method are required"
+        });
+      }
+
+
+      if (
+        !["cash", "online"].includes(payment_method)
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          msg: "payment_method must be cash or online"
+        });
+      }
+
+
+      const seats = Number(no_of_seats);
+
+
+      if (
+        !Number.isInteger(seats) ||
+        seats <= 0
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          msg: "no_of_seats must be a valid positive number"
+        });
+      }
+
+
+      conn = await pool.getConnection();
+
+      await conn.beginTransaction();
+
+
+      // -----------------------------------------
+      // PASSENGER
+      // -----------------------------------------
+
+      const [[passenger]] = await conn.query(
+        `SELECT id, fullname, phone
+         FROM users
+         WHERE phone = ?
+         LIMIT 1`,
+        [phone]
+      );
+
+
+      if (!passenger) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          msg: "Passenger not found"
+        });
+      }
+
+
+      // -----------------------------------------
+      // RIDE
+      // -----------------------------------------
+
+      const [[ride]] = await conn.query(
+        `SELECT *
+         FROM rides
+         WHERE id = ?
+         FOR UPDATE`,
+        [ride_id]
+      );
+
+
+      if (!ride) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          msg: "Ride not found"
+        });
+      }
+
+
+      // -----------------------------------------
+      // OWN RIDE
+      // -----------------------------------------
+
+      if (
+        Number(ride.user_id) ===
+        Number(passenger.id)
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "You cannot book your own ride"
+        });
+      }
+
+
+      // -----------------------------------------
+      // RIDE STATUS
+      // -----------------------------------------
+
+      if (ride.ride_status !== "open") {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "This ride is no longer available"
+        });
+      }
+
+
+      // -----------------------------------------
+      // SEATS
+      // -----------------------------------------
+
+      if (
+        seats >
+        Number(ride.seats_available)
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "Not enough seats available"
+        });
+      }
+
+
+      // -----------------------------------------
+      // DUPLICATE
+      // -----------------------------------------
+
+      const [[existing]] = await conn.query(
+        `SELECT id, status, payment_status
+         FROM ride_requests
+         WHERE ride_id = ?
+         AND passenger_id = ?
+         AND status IN ('pending', 'accepted')
+         LIMIT 1`,
+        [
+          ride_id,
+          passenger.id
+        ]
+      );
+
+
+      if (existing) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "You already have a booking for this ride"
+        });
+      }
+
+
+      // -----------------------------------------
+      // GROSS AMOUNT
+      // -----------------------------------------
+
+      const grossAmount =
+        Number(
+          (
+            seats *
+            Number(ride.amount_per_seat)
+          ).toFixed(2)
+        );
+
+
+      if (grossAmount <= 0) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "Invalid ride amount"
+        });
+      }
+
+
+      // -----------------------------------------
+      // COMMISSION
+      // -----------------------------------------
+
+      const commissionPercentage =
+        await getCommissionPercentage(conn);
+
+
+      const commissionAmount =
+        Number(
+          (
+            grossAmount *
+            commissionPercentage /
+            100
+          ).toFixed(2)
+        );
+
+
+      // -----------------------------------------
+      // DRIVER AMOUNT
+      // -----------------------------------------
+
+      let driverAmount;
+
+
+      if (payment_method === "online") {
+
+        driverAmount =
+          Number(
+            (
+              grossAmount -
+              commissionAmount
+            ).toFixed(2)
+          );
+
+      } else {
+
+        // Cash me driver ko full cash milega
+
+        driverAmount =
+          grossAmount;
+      }
+
+
+      // =================================================
+      // CASH
+      // =================================================
+
+      if (payment_method === "cash") {
+
+        const [result] = await conn.query(
+          `INSERT INTO ride_requests
+          (
+            ride_id,
+            passenger_id,
+            owner_id,
+            pickup_stop,
+            no_of_seats,
+            estimated_amount,
+            message,
+            status,
+            payment_method,
+            gross_amount,
+            commission_percentage,
+            commission_amount,
+            driver_amount,
+            payment_status,
+            paid_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+          [
+            ride_id,
+            passenger.id,
+            ride.user_id,
+            pickup_stop || null,
+            seats,
+            grossAmount,
+            message || null,
+            "pending",
+            "cash",
+            grossAmount,
+            commissionPercentage,
+            commissionAmount,
+            driverAmount,
+            "pending"
+          ]
+        );
+
+
+        const rideRequestId =
+          result.insertId;
+
+
+        // -----------------------------------------
+        // REDUCE SEATS
+        // -----------------------------------------
+
+        await conn.query(
+          `UPDATE rides
+           SET seats_available =
+               seats_available - ?
+           WHERE id = ?`,
+          [
+            seats,
+            ride_id
+          ]
+        );
+
+
+        await conn.commit();
+
+
+        return res.status(201).json({
+
+          success: true,
+
+          msg:
+            "Ride booking created successfully with cash payment",
+
+          data: {
+
+            ride_request_id:
+              rideRequestId,
+
+            ride_id:
+              Number(ride_id),
+
+            payment_method:
+              "cash",
+
+            gross_amount:
+              grossAmount,
+
+            commission_percentage:
+              commissionPercentage,
+
+            commission_amount:
+              commissionAmount,
+
+            driver_amount:
+              driverAmount,
+
+            payment_status:
+              "pending"
+          }
+        });
+      }
+
+
+      // =================================================
+      // ONLINE
+      // =================================================
+
+      const razorpayOrder =
+        await razorpay.orders.create({
+
+          amount:
+            Math.round(
+              grossAmount * 100
+            ),
+
+          currency: "INR",
+
+          receipt:
+            `ride_${ride_id}_${passenger.id}_${Date.now()}`,
+
+          notes: {
+
+            ride_id:
+              String(ride_id),
+
+            passenger_id:
+              String(passenger.id)
+          }
+        });
+
+
+      const [result] = await conn.query(
+        `INSERT INTO ride_requests
+        (
+          ride_id,
+          passenger_id,
+          owner_id,
+          pickup_stop,
+          no_of_seats,
+          estimated_amount,
+          message,
+          status,
+          payment_method,
+          gross_amount,
+          commission_percentage,
+          commission_amount,
+          driver_amount,
+          payment_status,
+          razorpay_order_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          ride_id,
+          passenger.id,
+          ride.user_id,
+          pickup_stop || null,
+          seats,
+          grossAmount,
+          message || null,
+          "pending",
+          "online",
+          grossAmount,
+          commissionPercentage,
+          commissionAmount,
+          driverAmount,
+          "pending",
+          razorpayOrder.id
+        ]
+      );
+
+
+      const rideRequestId =
+        result.insertId;
+
+
+      await conn.commit();
+
+
+      return res.status(201).json({
+
+        success: true,
+
+        msg:
+          "Ride booking created. Complete online payment.",
+
+        data: {
+
+          ride_request_id:
+            rideRequestId,
+
+          ride_id:
+            Number(ride_id),
+
+          payment_method:
+            "online",
+
+          amount:
+            grossAmount,
+
+          gross_amount:
+            grossAmount,
+
+          commission_percentage:
+            commissionPercentage,
+
+          commission_amount:
+            commissionAmount,
+
+          driver_amount:
+            driverAmount,
+
+          razorpay_order_id:
+            razorpayOrder.id,
+
+          razorpay_key_id:
+            process.env.RAZORPAY_KEY_ID,
+
+          currency:
+            "INR",
+
+          payment_status:
+            "pending"
+        }
+      });
+
+
+    } catch (err) {
+
+      if (conn) {
+
+        try {
+          await conn.rollback();
+        } catch (e) {}
+
+      }
+
+
+      console.error(
+        "Ride booking error:",
+        err
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        msg:
+          "Failed to create ride booking",
+
+        error:
+          err.sqlMessage ||
+          err.message
+      });
+
+
+    } finally {
+
+      if (conn) {
+        conn.release();
+      }
+
+    }
+  }
+);
+
+
+// =====================================================
+// API 2
+// ONLINE PAYMENT VERIFY
+// =====================================================
+
+router.post(
+  "/ride-requests/payment/verify",
+  authenticateToken,
+  async (req, res) => {
+
+    let conn;
+
+    try {
+
+      const {
+        ride_request_id,
+        razorpay_order_id,
+        razorpay_payment_id,
+        razorpay_signature
+      } = req.body;
+
+
+      // -----------------------------------------
+      // VALIDATION
+      // -----------------------------------------
+
+      if (
+        !ride_request_id ||
+        !razorpay_order_id ||
+        !razorpay_payment_id ||
+        !razorpay_signature
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          msg:
+            "ride_request_id, razorpay_order_id, razorpay_payment_id and razorpay_signature are required"
+        });
+      }
+
+
+      conn = await pool.getConnection();
+
+      await conn.beginTransaction();
+
+
+      // -----------------------------------------
+      // PASSENGER
+      // -----------------------------------------
+
+      const [[passenger]] = await conn.query(
+        `SELECT id
+         FROM users
+         WHERE phone = ?
+         LIMIT 1`,
+        [req.user.phone]
+      );
+
+
+      if (!passenger) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          msg: "Passenger not found"
+        });
+      }
+
+
+      // -----------------------------------------
+      // GET REQUEST
+      // -----------------------------------------
+
+      const [[request]] = await conn.query(
+        `SELECT
+          id,
+          ride_id,
+          passenger_id,
+          owner_id,
+          payment_method,
+          payment_status,
+          gross_amount,
+          commission_percentage,
+          commission_amount,
+          driver_amount,
+          razorpay_order_id
+         FROM ride_requests
+         WHERE id = ?
+         FOR UPDATE`,
+        [ride_request_id]
+      );
+
+
+      if (!request) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          msg: "Ride request not found"
+        });
+      }
+
+
+      // -----------------------------------------
+      // PASSENGER CHECK
+      // -----------------------------------------
+
+      if (
+        Number(request.passenger_id) !==
+        Number(passenger.id)
+      ) {
+
+        await conn.rollback();
+
+        return res.status(403).json({
+          success: false,
+          msg: "You are not authorized for this payment"
+        });
+      }
+
+
+      // -----------------------------------------
+      // PAYMENT METHOD
+      // -----------------------------------------
+
+      if (
+        request.payment_method !==
+        "online"
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "This booking is not an online payment"
+        });
+      }
+
+
+      // -----------------------------------------
+      // ALREADY PAID
+      // -----------------------------------------
+
+      if (
+        request.payment_status ===
+        "paid"
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "Payment is already verified"
+        });
+      }
+
+
+      // -----------------------------------------
+      // ORDER CHECK
+      // -----------------------------------------
+
+      if (
+        request.razorpay_order_id !==
+        razorpay_order_id
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "Invalid Razorpay order ID"
+        });
+      }
+
+
+      // -----------------------------------------
+      // SIGNATURE VERIFY
+      // -----------------------------------------
+
+      const generatedSignature =
+        crypto
+          .createHmac(
+            "sha256",
+            process.env.RAZORPAY_KEY_SECRET
+          )
+          .update(
+            `${razorpay_order_id}|${razorpay_payment_id}`
+          )
+          .digest("hex");
+
+
+      if (
+        generatedSignature !==
+        razorpay_signature
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "Invalid Razorpay signature"
+        });
+      }
+
+
+      // -----------------------------------------
+      // GET RIDE WITH LOCK
+      // -----------------------------------------
+
+      const [[ride]] = await conn.query(
+        `SELECT
+          id,
+          user_id,
+          seats_available,
+          ride_status
+         FROM rides
+         WHERE id = ?
+         FOR UPDATE`,
+        [request.ride_id]
+      );
+
+
+      if (!ride) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          msg: "Ride not found"
+        });
+      }
+
+
+      // -----------------------------------------
+      // CHECK SEATS
+      // -----------------------------------------
+
+      if (
+        Number(ride.seats_available) <
+        Number(
+          await getRequestSeats(
+            conn,
+            ride_request_id
+          )
+        )
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "Not enough seats available"
+        });
+      }
+
+
+      // -----------------------------------------
+      // DRIVER WALLET
+      // -----------------------------------------
+
+      const wallet =
+        await getOrCreateWallet(
+          conn,
+          request.owner_id
+        );
+
+
+      const balanceBefore =
+        Number(wallet.balance);
+
+
+      // Online driver gets net earning
+
+      const driverAmount =
+        Number(request.driver_amount);
+
+
+      const balanceAfter =
+        Number(
+          (
+            balanceBefore +
+            driverAmount
+          ).toFixed(2)
+        );
+
+
+      // -----------------------------------------
+      // UPDATE WALLET
+      // -----------------------------------------
+
+      await conn.query(
+        `UPDATE wallets
+         SET balance = ?
+         WHERE id = ?`,
+        [
+          balanceAfter,
+          wallet.id
+        ]
+      );
+
+
+      // -----------------------------------------
+      // UPDATE PAYMENT
+      // -----------------------------------------
+
+      await conn.query(
+        `UPDATE ride_requests
+         SET payment_status = 'paid',
+             razorpay_payment_id = ?,
+             paid_at = NOW()
+         WHERE id = ?`,
+        [
+          razorpay_payment_id,
+          ride_request_id
+        ]
+      );
+
+
+      // -----------------------------------------
+      // REDUCE SEATS
+      // -----------------------------------------
+
+      const seats =
+        await getRequestSeats(
+          conn,
+          ride_request_id
+        );
+
+
+      await conn.query(
+        `UPDATE rides
+         SET seats_available =
+             seats_available - ?
+         WHERE id = ?`,
+        [
+          seats,
+          request.ride_id
+        ]
+      );
+
+
+      await conn.commit();
+
+
+      return res.status(200).json({
+
+        success: true,
+
+        msg:
+          "Online payment verified successfully",
+
+        data: {
+
+          ride_request_id:
+            request.id,
+
+          payment_method:
+            "online",
+
+          payment_status:
+            "paid",
+
+          gross_amount:
+            Number(request.gross_amount),
+
+          commission_percentage:
+            Number(request.commission_percentage),
+
+          commission_amount:
+            Number(request.commission_amount),
+
+          driver_amount:
+            driverAmount,
+
+          wallet_balance_before:
+            balanceBefore,
+
+          wallet_balance_after:
+            balanceAfter,
+
+          razorpay_payment_id:
+            razorpay_payment_id
+        }
+      });
+
+
+    } catch (err) {
+
+      if (conn) {
+
+        try {
+          await conn.rollback();
+        } catch (e) {}
+
+      }
+
+
+      console.error(
+        "Payment verification error:",
+        err
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        msg:
+          "Payment verification failed",
+
+        error:
+          err.message
+      });
+
+
+    } finally {
+
+      if (conn) {
+        conn.release();
+      }
+
+    }
+  }
+);
+
+
+// =====================================================
+// HELPER: GET REQUEST SEATS
+// =====================================================
+
+async function getRequestSeats(
+  conn,
+  rideRequestId
+) {
+
+  const [[request]] = await conn.query(
+    `SELECT no_of_seats
+     FROM ride_requests
+     WHERE id = ?
+     LIMIT 1`,
+    [rideRequestId]
+  );
+
+  if (!request) {
+    throw new Error("Ride request not found");
+  }
+
+  return Number(request.no_of_seats);
+}
+
+
+// =====================================================
+// API 3
+// CASH PAYMENT CONFIRM
+// =====================================================
+
+router.post(
+  "/ride-requests/:id/cash-payment",
+  authenticateToken,
+  async (req, res) => {
+
+    let conn;
+
+    try {
+
+      const rideRequestId =
+        req.params.id;
+
+      const {
+        payment_status
+      } = req.body;
+
+
+      // -----------------------------------------
+      // VALIDATION
+      // -----------------------------------------
+
+      if (
+        payment_status !==
+        "paid"
+      ) {
+
+        return res.status(400).json({
+          success: false,
+          msg: "payment_status must be paid"
+        });
+      }
+
+
+      conn = await pool.getConnection();
+
+      await conn.beginTransaction();
+
+
+      // -----------------------------------------
+      // DRIVER
+      // -----------------------------------------
+
+      const [[driver]] = await conn.query(
+        `SELECT id, fullname, phone
+         FROM users
+         WHERE phone = ?
+         LIMIT 1`,
+        [req.user.phone]
+      );
+
+
+      if (!driver) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          msg: "Driver not found"
+        });
+      }
+
+
+      // -----------------------------------------
+      // REQUEST
+      // -----------------------------------------
+
+      const [[request]] = await conn.query(
+        `SELECT
+          id,
+          ride_id,
+          passenger_id,
+          owner_id,
+          payment_method,
+          payment_status,
+          gross_amount,
+          commission_percentage,
+          commission_amount,
+          driver_amount
+         FROM ride_requests
+         WHERE id = ?
+         FOR UPDATE`,
+        [rideRequestId]
+      );
+
+
+      if (!request) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          msg: "Ride request not found"
+        });
+      }
+
+
+      // -----------------------------------------
+      // DRIVER CHECK
+      // -----------------------------------------
+
+      if (
+        Number(request.owner_id) !==
+        Number(driver.id)
+      ) {
+
+        await conn.rollback();
+
+        return res.status(403).json({
+          success: false,
+          msg:
+            "You are not authorized to update this payment"
+        });
+      }
+
+
+      // -----------------------------------------
+      // CASH CHECK
+      // -----------------------------------------
+
+      if (
+        request.payment_method !==
+        "cash"
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg:
+            "This booking is not a cash payment"
+        });
+      }
+
+
+      // -----------------------------------------
+      // ALREADY PAID
+      // -----------------------------------------
+
+      if (
+        request.payment_status ===
+        "paid"
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg:
+            "Cash payment is already confirmed"
+        });
+      }
+
+
+      // -----------------------------------------
+      // GET WALLET
+      // -----------------------------------------
+
+      const wallet =
+        await getOrCreateWallet(
+          conn,
+          driver.id
+        );
+
+
+      const balanceBefore =
+        Number(wallet.balance);
+
+
+      // Cash:
+      // Customer gives full amount to driver.
+      // App commission is deducted from wallet.
+
+      const commissionAmount =
+        Number(
+          request.commission_amount
+        );
+
+
+      const balanceAfter =
+        Number(
+          (
+            balanceBefore -
+            commissionAmount
+          ).toFixed(2)
+        );
+
+
+      // -----------------------------------------
+      // UPDATE WALLET
+      // -----------------------------------------
+
+      await conn.query(
+        `UPDATE wallets
+         SET balance = ?
+         WHERE id = ?`,
+        [
+          balanceAfter,
+          wallet.id
+        ]
+      );
+
+
+      // -----------------------------------------
+      // UPDATE PAYMENT
+      // -----------------------------------------
+
+      await conn.query(
+        `UPDATE ride_requests
+         SET payment_status = 'paid',
+             paid_at = NOW()
+         WHERE id = ?`,
+        [rideRequestId]
+      );
+
+
+      await conn.commit();
+
+
+      return res.status(200).json({
+
+        success: true,
+
+        msg:
+          "Cash payment confirmed successfully",
+
+        data: {
+
+          ride_request_id:
+            request.id,
+
+          payment_method:
+            "cash",
+
+          payment_status:
+            "paid",
+
+          gross_amount:
+            Number(request.gross_amount),
+
+          commission_percentage:
+            Number(request.commission_percentage),
+
+          commission_amount:
+            commissionAmount,
+
+          driver_amount:
+            Number(request.driver_amount),
+
+          wallet_balance_before:
+            balanceBefore,
+
+          wallet_balance_after:
+            balanceAfter
+        }
+      });
+
+
+    } catch (err) {
+
+      if (conn) {
+
+        try {
+          await conn.rollback();
+        } catch (e) {}
+
+      }
+
+
+      console.error(
+        "Cash payment error:",
+        err
+      );
+
+
+      return res.status(500).json({
+
+        success: false,
+
+        msg:
+          "Cash payment confirmation failed",
+
+        error:
+          err.message
+      });
+
+
+    } finally {
+
+      if (conn) {
+        conn.release();
+      }
+
+    }
+  }
+);
+
+
+
+// async function getCommissionPercentage(conn) {
+//   const [[setting]] = await conn.query(
+//     `SELECT value
+//      FROM commission_settings
+//      WHERE \`key\` = 'per_ride_commission'
+//      LIMIT 1`
+//   );
+
+//   if (!setting) {
+//     return 10;
+//   }
+
+//   const percentage = Number(setting.value);
+
+//   if (isNaN(percentage) || percentage < 0 || percentage > 100) {
+//     return 10;
+//   }
+
+//   return percentage;
+// }
+
+// async function getOrCreateWallet(conn, userId) {
+//   let [[wallet]] = await conn.query(
+//     `SELECT id, user_id, balance
+//      FROM wallets
+//      WHERE user_id = ?
+//      FOR UPDATE`,
+//     [userId]
+//   );
+
+//   if (!wallet) {
+//     await conn.query(
+//       `INSERT INTO wallets (user_id, balance)
+//        VALUES (?, 0)`,
+//       [userId]
+//     );
+
+//     [[wallet]] = await conn.query(
+//       `SELECT id, user_id, balance
+//        FROM wallets
+//        WHERE user_id = ?
+//        FOR UPDATE`,
+//       [userId]
+//     );
+//   }
+
+//   return wallet;
+// }
+
 //new
 
 router.post(
-  "/",
+  "/old",
   authenticateToken,
   async (req, res) => {
     let conn;
@@ -1571,7 +2934,7 @@ router.get("/my-all-ride-requests", authenticateToken, async (req, res) => {
 //---------------- Request Rides (Ride Booking Flow) ----------------------
 
 
-router.post("/ride-requests", authenticateToken, async (req, res) => {
+router.post("/oldride-requests", authenticateToken, async (req, res) => {
   const phone = req.user.phone;
 
   const {
