@@ -96,6 +96,82 @@ router.post("/fcm-token", authenticateToken, async (req, res) => {
   }
 });
 
+
+router.get(
+  "/wallet",
+  authenticateToken,
+  async (req, res) => {
+    let conn;
+
+    try {
+      const { phone } = req.user;
+
+      conn = await pool.getConnection();
+
+      const [[user]] = await conn.query(
+        `SELECT id, fullname, phone
+         FROM users
+         WHERE phone = ?
+         LIMIT 1`,
+        [phone]
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          msg: "User not found"
+        });
+      }
+
+      const [[wallet]] = await conn.query(
+        `SELECT id, user_id, balance
+         FROM wallets
+         WHERE user_id = ?
+         LIMIT 1`,
+        [user.id]
+      );
+
+      // Wallet doesn't exist yet
+      if (!wallet) {
+        return res.status(200).json({
+          success: true,
+          msg: "Wallet details fetched successfully",
+          data: {
+            wallet_id: null,
+            user_id: user.id,
+            balance: 0.00
+          }
+        });
+      }
+
+      return res.status(200).json({
+        success: true,
+        msg: "Wallet details fetched successfully",
+        data: {
+          wallet_id: wallet.id,
+          user_id: wallet.user_id,
+          balance: Number(wallet.balance)
+        }
+      });
+
+    } catch (err) {
+
+      console.error("Wallet API error:", err);
+
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to fetch wallet",
+        error: err.sqlMessage || err.message
+      });
+
+    } finally {
+      if (conn) {
+        conn.release();
+      }
+    }
+  }
+);
+
 // --- Verify OTP & determine next step ---
 router.post("/verify-otp", async (req, res) => {
   const { phone, otp } = req.body;
