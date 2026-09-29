@@ -172,6 +172,174 @@ router.get(
   }
 );
 
+
+router.post(
+  "/drivers/razorpay-account",
+  authenticateToken,
+  async (req, res) => {
+    let conn;
+
+    try {
+      const { phone } = req.user;
+
+      const {
+        email,
+        phone: accountPhone,
+        legal_business_name,
+        business_type,
+        contact_name,
+        account_number,
+        ifsc_code
+      } = req.body;
+
+      if (
+        !email ||
+        !accountPhone ||
+        !legal_business_name ||
+        !business_type ||
+        !contact_name ||
+        !account_number ||
+        !ifsc_code
+      ) {
+        return res.status(400).json({
+          success: false,
+          msg: "All bank/account details are required"
+        });
+      }
+
+      conn = await pool.getConnection();
+
+      // ---------------------------------------
+      // Get logged-in driver
+      // ---------------------------------------
+
+      const [[driver]] = await conn.query(
+        `SELECT
+          id,
+          fullname,
+          phone,
+          razorpay_linked_account_id
+         FROM users
+         WHERE phone = ?
+         LIMIT 1`,
+        [phone]
+      );
+
+      if (!driver) {
+        return res.status(404).json({
+          success: false,
+          msg: "Driver not found"
+        });
+      }
+
+      // ---------------------------------------
+      // Already created
+      // ---------------------------------------
+
+      if (driver.razorpay_linked_account_id) {
+        return res.status(400).json({
+          success: false,
+          msg: "Razorpay account already exists",
+          data: {
+            razorpay_linked_account_id:
+              driver.razorpay_linked_account_id
+          }
+        });
+      }
+
+      // ---------------------------------------
+      // Create Razorpay Linked Account
+      // ---------------------------------------
+
+      const account =
+        await razorpay.accounts.create({
+          email: email,
+          phone: accountPhone,
+
+          legal_business_name:
+            legal_business_name,
+
+          business_type:
+            business_type,
+
+          contact_name:
+            contact_name,
+
+          profile: {
+            category: "transportation",
+            subcategory: "taxi"
+          },
+
+          legal_info: {
+            pan: req.body.pan || undefined,
+            gst: req.body.gst || undefined
+          },
+
+          bank_account: {
+            account_number:
+              account_number,
+
+            ifsc:
+              ifsc_code,
+
+            beneficiary_name:
+              contact_name
+          }
+        });
+
+      // ---------------------------------------
+      // Save Razorpay account ID
+      // ---------------------------------------
+
+      await conn.query(
+        `UPDATE users
+         SET razorpay_linked_account_id = ?
+         WHERE id = ?`,
+        [
+          account.id,
+          driver.id
+        ]
+      );
+
+      return res.status(201).json({
+        success: true,
+        msg: "Razorpay linked account created successfully",
+
+        data: {
+          driver_id: driver.id,
+
+          razorpay_linked_account_id:
+            account.id,
+
+          status:
+            account.status || null
+        }
+      });
+
+    } catch (err) {
+
+      console.error(
+        "Razorpay linked account error:",
+        err
+      );
+
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to create Razorpay linked account",
+        error:
+          err.error?.description ||
+          err.error?.reason ||
+          err.message
+      });
+
+    } finally {
+      if (conn) {
+        conn.release();
+      }
+    }
+  }
+);
+
 // --- Verify OTP & determine next step ---
 router.post("/verify-otp", async (req, res) => {
   const { phone, otp } = req.body;
