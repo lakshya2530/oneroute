@@ -1525,7 +1525,7 @@ router.post(
 
     try {
       const { phone } = req.user;
-
+console.log(phone,'dsdsd');
       const {
         pickup_location,
         pickup_lat,
