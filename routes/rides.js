@@ -109,11 +109,11 @@ router.get("/:rideId/live-location", authenticateToken, async (req, res) => {
 // =====================================================
 
 async function getCommissionPercentage(conn) {
-
   const [[setting]] = await conn.query(
-    `SELECT value
+    `SELECT per_ride_commission
      FROM commission_settings
-     WHERE \`key\` = 'per_ride_commission'
+     WHERE is_active = 1
+     ORDER BY id DESC
      LIMIT 1`
   );
 
@@ -121,7 +121,7 @@ async function getCommissionPercentage(conn) {
     return 10;
   }
 
-  const commission = Number(setting.value);
+  const commission = Number(setting.per_ride_commission);
 
   if (
     isNaN(commission) ||
@@ -133,7 +133,6 @@ async function getCommissionPercentage(conn) {
 
   return commission;
 }
-
 
 // =====================================================
 // WALLET
