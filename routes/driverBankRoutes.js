@@ -3,106 +3,418 @@ const router = express.Router();
 const { pool } = require("../db/connection.js");
 const authenticateToken = require("../middleware/auth.js");
 const upload = require("../middleware/upload.js");
+const razorpay = require("../config/razorpay");
 
 
 
 router.post(
-    "/driver/bank-details",
-    authenticateToken,
-    async (req, res) => {
+  "/driver/bank-details",
+  authenticateToken,
+  async (req, res) => {
+    let conn;
+
+    try {
+      const { phone } = req.user;
+
+      const {
+        account_holder_name,
+        bank_name,
+        account_number,
+        ifsc_code,
+        branch_name,
+      } = req.body;
+
+      if (
+        !account_holder_name ||
+        !bank_name ||
+        !account_number ||
+        !ifsc_code
+      ) {
+        return res.status(400).json({
+          success: false,
+          msg: "Account holder name, bank name, account number and IFSC are required",
+        });
+      }
+
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+
+      // Get driver
+      const [[user]] = await conn.query(
+        `SELECT id, phone, fullname, razorpay_linked_account_id
+         FROM users
+         WHERE phone = ?
+         LIMIT 1`,
+        [phone]
+      );
+
+      if (!user) {
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const driverId = user.id;
+
+      // Check existing bank details
+      const [[existing]] = await conn.query(
+        `SELECT id
+         FROM driver_bank_details
+         WHERE driver_id = ?
+         AND status = 'active'
+         LIMIT 1`,
+        [driverId]
+      );
+
+      if (existing) {
+        await conn.rollback();
+
+        return res.status(400).json({
+          success: false,
+          msg: "Bank details already exist. Please edit existing details.",
+        });
+      }
+
+      /*
+       * Razorpay Linked Account
+       *
+       * IMPORTANT:
+       * This requires Razorpay Route / Linked Account access.
+       */
+
+      let linkedAccount;
+
       try {
-        const { phone } = req.user;
-        const conn = await pool.getConnection();
-        const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
-            phone,
-          ]);
-    
-          if (!user) {
-            return res.status(404).json({
-              success: false,
-              message: "User not found",
-            });
-          }
-        const driver_id = user.id;
-  
-        const {
+        linkedAccount = await razorpay.accounts.create({
+          email: user.email || `${phone}@example.com`,
+          phone: phone,
+          type: "individual",
+          legal_business_name: account_holder_name,
+          business_type: "individual",
+          profile: {
+            category: "transportation",
+            subcategory: "transportation",
+          },
+          legal_info: {
+            pan: req.body.pan || "",
+          },
+        });
+      } catch (razorpayError) {
+        await conn.rollback();
+
+        console.error(
+          "Razorpay linked account error:",
+          razorpayError
+        );
+
+        return res.status(400).json({
+          success: false,
+          msg: "Unable to create Razorpay linked account",
+          error: razorpayError.error?.description ||
+                 razorpayError.message,
+        });
+      }
+
+      const linkedAccountId = linkedAccount.id;
+
+      // Save bank details
+      const [result] = await conn.query(
+        `INSERT INTO driver_bank_details
+        (
+          driver_id,
           account_holder_name,
           bank_name,
           account_number,
           ifsc_code,
           branch_name,
-        } = req.body;
-  
-        if (
-          !account_holder_name ||
-          !bank_name ||
-          !account_number ||
-          !ifsc_code
-        ) {
-          return res.status(400).json({
-            success: false,
-            msg: "Account holder name, bank name, account number and IFSC are required",
-          });
-        }
-  
-        // Check existing
-        const [[existing]] = await pool.query(
-          `SELECT id
-           FROM driver_bank_details
-           WHERE driver_id = ?
-           AND status = 'active'
-           LIMIT 1`,
-          [driver_id]
-        );
-  
-        if (existing) {
-          return res.status(400).json({
-            success: false,
-            msg: "Bank details already exist. Please edit existing details.",
-          });
-        }
-  
-        const [result] = await pool.query(
-          `INSERT INTO driver_bank_details
-          (
-            driver_id,
-            account_holder_name,
-            bank_name,
-            account_number,
-            ifsc_code,
-            branch_name,
-            is_primary,
-            status
-          )
-          VALUES (?, ?, ?, ?, ?, ?, 1, 'active')`,
-          [
-            driver_id,
-            account_holder_name,
-            bank_name,
-            account_number,
-            ifsc_code.toUpperCase(),
-            branch_name || null,
-          ]
-        );
-  
-        return res.status(200).json({
-          success: true,
-          msg: "Bank details added successfully",
-          data: {
-            id: result.insertId,
-          },
-        });
-      } catch (err) {
-        console.error("Add bank details error:", err);
-  
-        return res.status(500).json({
-          success: false,
-          msg: "Failed to add bank details",
-          error: err.message,
-        });
+          is_primary,
+          status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, 1, 'active')`,
+        [
+          driverId,
+          account_holder_name,
+          bank_name,
+          account_number,
+          ifsc_code.toUpperCase(),
+          branch_name || null,
+        ]
+      );
+
+      // Save Razorpay Linked Account ID in USERS table
+      await conn.query(
+        `UPDATE users
+         SET razorpay_linked_account_id = ?
+         WHERE id = ?`,
+        [
+          linkedAccountId,
+          driverId,
+        ]
+      );
+
+      await conn.commit();
+
+      return res.status(201).json({
+        success: true,
+        msg: "Bank details and Razorpay linked account added successfully",
+        data: {
+          bank_detail_id: result.insertId,
+          razorpay_linked_account_id: linkedAccountId,
+        },
+      });
+
+    } catch (err) {
+      if (conn) {
+        await conn.rollback();
+      }
+
+      console.error("Add bank details error:", err);
+
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to add bank details",
+        error: err.message,
+      });
+
+    } finally {
+      if (conn) {
+        conn.release();
       }
     }
-  );
+  }
+);
+
+router.put(
+  "/driver/bank-details",
+  authenticateToken,
+  async (req, res) => {
+    let conn;
+
+    try {
+      const { phone } = req.user;
+
+      const {
+        account_holder_name,
+        bank_name,
+        account_number,
+        ifsc_code,
+        branch_name,
+      } = req.body;
+
+      if (
+        !account_holder_name ||
+        !bank_name ||
+        !account_number ||
+        !ifsc_code
+      ) {
+        return res.status(400).json({
+          success: false,
+          msg: "Account holder name, bank name, account number and IFSC are required",
+        });
+      }
+
+      conn = await pool.getConnection();
+      await conn.beginTransaction();
+
+      // Get user + linked account ID
+      const [[user]] = await conn.query(
+        `SELECT id, phone, razorpay_linked_account_id
+         FROM users
+         WHERE phone = ?
+         LIMIT 1`,
+        [phone]
+      );
+
+      if (!user) {
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          msg: "User not found",
+        });
+      }
+
+      const driverId = user.id;
+
+      // Get existing bank details
+      const [[bankDetails]] = await conn.query(
+        `SELECT *
+         FROM driver_bank_details
+         WHERE driver_id = ?
+         AND status = 'active'
+         LIMIT 1`,
+        [driverId]
+      );
+
+      if (!bankDetails) {
+        await conn.rollback();
+
+        return res.status(404).json({
+          success: false,
+          msg: "Bank details not found. Please add bank details first.",
+        });
+      }
+
+      // Update local bank details
+      await conn.query(
+        `UPDATE driver_bank_details
+         SET
+           account_holder_name = ?,
+           bank_name = ?,
+           account_number = ?,
+           ifsc_code = ?,
+           branch_name = ?
+         WHERE id = ?`,
+        [
+          account_holder_name,
+          bank_name,
+          account_number,
+          ifsc_code.toUpperCase(),
+          branch_name || null,
+          bankDetails.id,
+        ]
+      );
+
+      /*
+       * Linked Account ID remains in users table.
+       *
+       * Example:
+       * users.razorpay_linked_account_id = acc_xxxxx
+       */
+
+      await conn.commit();
+
+      return res.status(200).json({
+        success: true,
+        msg: "Bank details updated successfully",
+        data: {
+          id: bankDetails.id,
+          razorpay_linked_account_id:
+            user.razorpay_linked_account_id,
+        },
+      });
+
+    } catch (err) {
+      if (conn) {
+        await conn.rollback();
+      }
+
+      console.error("Update bank details error:", err);
+
+      return res.status(500).json({
+        success: false,
+        msg: "Failed to update bank details",
+        error: err.message,
+      });
+
+    } finally {
+      if (conn) {
+        conn.release();
+      }
+    }
+  }
+);
+
+// router.post(
+//     "/driver/bank-details",
+//     authenticateToken,
+//     async (req, res) => {
+//       try {
+//         const { phone } = req.user;
+//         const conn = await pool.getConnection();
+//         const [[user]] = await conn.query("SELECT * FROM users WHERE phone=?", [
+//             phone,
+//           ]);
+    
+//           if (!user) {
+//             return res.status(404).json({
+//               success: false,
+//               message: "User not found",
+//             });
+//           }
+//         const driver_id = user.id;
+  
+//         const {
+//           account_holder_name,
+//           bank_name,
+//           account_number,
+//           ifsc_code,
+//           branch_name,
+//         } = req.body;
+  
+//         if (
+//           !account_holder_name ||
+//           !bank_name ||
+//           !account_number ||
+//           !ifsc_code
+//         ) {
+//           return res.status(400).json({
+//             success: false,
+//             msg: "Account holder name, bank name, account number and IFSC are required",
+//           });
+//         }
+  
+//         // Check existing
+//         const [[existing]] = await pool.query(
+//           `SELECT id
+//            FROM driver_bank_details
+//            WHERE driver_id = ?
+//            AND status = 'active'
+//            LIMIT 1`,
+//           [driver_id]
+//         );
+  
+//         if (existing) {
+//           return res.status(400).json({
+//             success: false,
+//             msg: "Bank details already exist. Please edit existing details.",
+//           });
+//         }
+  
+//         const [result] = await pool.query(
+//           `INSERT INTO driver_bank_details
+//           (
+//             driver_id,
+//             account_holder_name,
+//             bank_name,
+//             account_number,
+//             ifsc_code,
+//             branch_name,
+//             is_primary,
+//             status
+//           )
+//           VALUES (?, ?, ?, ?, ?, ?, 1, 'active')`,
+//           [
+//             driver_id,
+//             account_holder_name,
+//             bank_name,
+//             account_number,
+//             ifsc_code.toUpperCase(),
+//             branch_name || null,
+//           ]
+//         );
+  
+//         return res.status(200).json({
+//           success: true,
+//           msg: "Bank details added successfully",
+//           data: {
+//             id: result.insertId,
+//           },
+//         });
+//       } catch (err) {
+//         console.error("Add bank details error:", err);
+  
+//         return res.status(500).json({
+//           success: false,
+//           msg: "Failed to add bank details",
+//           error: err.message,
+//         });
+//       }
+//     }
+//   );
 
   router.get(
     "/driver/bank-details",
