@@ -2206,6 +2206,8 @@ router.post(
       // ----------------------------------------------
       // DRIVER OWNERSHIP CHECK
       // ----------------------------------------------
+console.log(request.owner_id,'request.owner_id');
+console.log(driver.id,'driver.id');
 
       if (
         Number(request.owner_id) !==
