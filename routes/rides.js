@@ -2116,6 +2116,311 @@ router.post(
   }
 );
 
+
+
+// ======================================================
+// 2. CASH PAYMENT CONFIRM
+// ======================================================
+
+router.post(
+  "/ride-requests/:id/cash-payment",
+  authenticateToken,
+  async (req, res) => {
+
+    let conn;
+
+    try {
+
+      const rideRequestId =
+        req.params.id;
+
+      const driverPhone =
+        req.user.phone;
+
+
+      conn = await pool.getConnection();
+
+      await conn.beginTransaction();
+
+
+      // ----------------------------------------------
+      // GET DRIVER
+      // ----------------------------------------------
+
+      const [[driver]] = await conn.query(
+        `SELECT id, fullname, phone
+         FROM users
+         WHERE phone = ?
+         LIMIT 1`,
+        [driverPhone]
+      );
+
+      if (!driver) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          status: false,
+          message: "Driver not found"
+        });
+      }
+
+
+      // ----------------------------------------------
+      // GET RIDE REQUEST
+      // LOCK
+      // ----------------------------------------------
+
+      const [[request]] = await conn.query(
+        `SELECT
+            rr.id,
+            rr.ride_id,
+            rr.passenger_id,
+            rr.owner_id,
+            rr.no_of_seats,
+            rr.status,
+            rr.payment_method,
+            rr.gross_amount,
+            rr.commission_percentage,
+            rr.commission_amount,
+            rr.driver_amount,
+            rr.payment_status
+         FROM ride_requests rr
+         WHERE rr.id = ?
+         FOR UPDATE`,
+        [rideRequestId]
+      );
+
+
+      if (!request) {
+
+        await conn.rollback();
+
+        return res.status(404).json({
+          status: false,
+          message: "Ride request not found"
+        });
+      }
+
+
+      // ----------------------------------------------
+      // DRIVER OWNERSHIP CHECK
+      // ----------------------------------------------
+
+      if (
+        Number(request.owner_id) !==
+        Number(driver.id)
+      ) {
+
+        await conn.rollback();
+
+        return res.status(403).json({
+          status: false,
+          message:
+            "You are not authorized to confirm this payment"
+        });
+      }
+
+
+      // ----------------------------------------------
+      // PAYMENT METHOD CHECK
+      // ----------------------------------------------
+
+      if (
+        request.payment_method !==
+        "cash"
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          status: false,
+          message:
+            "This booking is not a cash payment booking"
+        });
+      }
+
+
+      // ----------------------------------------------
+      // ALREADY PAID
+      // ----------------------------------------------
+
+      if (
+        request.payment_status ===
+        "paid"
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          status: false,
+          message:
+            "Cash payment has already been confirmed"
+        });
+      }
+
+
+      // ----------------------------------------------
+      // STATUS CHECK
+      // ----------------------------------------------
+
+      if (
+        !["accepted", "completed"].includes(
+          request.status
+        )
+      ) {
+
+        await conn.rollback();
+
+        return res.status(400).json({
+          status: false,
+          message:
+            "Cash payment can only be confirmed after ride acceptance"
+        });
+      }
+
+
+      // ----------------------------------------------
+      // AMOUNTS
+      // ----------------------------------------------
+
+      const grossAmount =
+        Number(request.gross_amount);
+
+      const commissionPercentage =
+        Number(request.commission_percentage);
+
+      const commissionAmount =
+        Number(request.commission_amount);
+
+      const driverAmount =
+        Number(request.driver_amount);
+
+
+      // ----------------------------------------------
+      // GET WALLET
+      // ----------------------------------------------
+
+      const wallet =
+        await getOrCreateWallet(
+          conn,
+          driver.id
+        );
+
+
+      const walletBefore =
+        Number(wallet.balance);
+
+
+      // Cash:
+      // Driver gets full cash from customer.
+      // App commission gets deducted from wallet.
+
+      const walletAfter =
+        walletBefore - commissionAmount;
+
+
+      // ----------------------------------------------
+      // UPDATE WALLET
+      // ----------------------------------------------
+
+      await conn.query(
+        `UPDATE wallets
+         SET balance = ?
+         WHERE id = ?`,
+        [
+          walletAfter,
+          wallet.id
+        ]
+      );
+
+
+      // ----------------------------------------------
+      // UPDATE PAYMENT
+      // ----------------------------------------------
+
+      await conn.query(
+        `UPDATE ride_requests
+         SET payment_status = 'paid',
+             paid_at = NOW()
+         WHERE id = ?`,
+        [rideRequestId]
+      );
+
+
+      await conn.commit();
+
+
+      return res.status(200).json({
+
+        status: true,
+
+        message:
+          "Cash payment confirmed successfully",
+
+        data: {
+
+          ride_request_id:
+            Number(rideRequestId),
+
+          payment_method:
+            "cash",
+
+          payment_status:
+            "paid",
+
+          gross_amount:
+            Number(grossAmount.toFixed(2)),
+
+          commission_percentage:
+            Number(commissionPercentage.toFixed(2)),
+
+          commission_amount:
+            Number(commissionAmount.toFixed(2)),
+
+          driver_amount:
+            Number(driverAmount.toFixed(2)),
+
+          wallet_before:
+            Number(walletBefore.toFixed(2)),
+
+          wallet_after:
+            Number(walletAfter.toFixed(2))
+
+        }
+
+      });
+
+
+    } catch (error) {
+
+      if (conn) {
+        try {
+          await conn.rollback();
+        } catch (e) {}
+      }
+
+      console.error(
+        "Cash payment confirm error:",
+        error
+      );
+
+      return res.status(500).json({
+        status: false,
+        message: "Something went wrong",
+        error: error.message
+      });
+
+    } finally {
+
+      if (conn) {
+        conn.release();
+      }
+    }
+  }
+);
+
+
 // router.post(
 //   "/ride-requests/payment/verify",
 //   authenticateToken,
