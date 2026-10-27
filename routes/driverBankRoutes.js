@@ -41,7 +41,7 @@ router.post(
 
       // Get driver
       const [[user]] = await conn.query(
-        `SELECT id, phone, fullname, razorpay_linked_account_id
+        `SELECT id, phone, fullname
          FROM users
          WHERE phone = ?
          LIMIT 1`,
@@ -85,43 +85,43 @@ router.post(
        * This requires Razorpay Route / Linked Account access.
        */
 
-      let linkedAccount;
+    //   let linkedAccount;
 
-      try {
-        linkedAccount = await razorpay.accounts.create({
-          email: user.email || `${phone}@example.com`,
-          phone: phone,
-          type: "individual",
-          legal_business_name: account_holder_name,
-          business_type: "individual",
-          profile: {
-            category: "transportation",
-            subcategory: "transportation",
-          },
-          legal_info: {
-            pan: req.body.pan || "",
-          },
-        });
-      } catch (razorpayError) {
-        await conn.rollback();
+    //   try {
+    //     linkedAccount = await razorpay.accounts.create({
+    //       email: user.email || `${phone}@example.com`,
+    //       phone: phone,
+    //       type: "individual",
+    //       legal_business_name: account_holder_name,
+    //       business_type: "individual",
+    //       profile: {
+    //         category: "transportation",
+    //         subcategory: "transportation",
+    //       },
+    //       legal_info: {
+    //         pan: req.body.pan || "",
+    //       },
+    //     });
+    //   } catch (razorpayError) {
+    //     await conn.rollback();
 
-    console.error("========== RAZORPAY ERROR ==========");
-    console.error("Status:", razorpayError.statusCode);
-    console.error("Message:", razorpayError.message);
-    console.error("Error:", razorpayError.error);
-    console.error("Full:", JSON.stringify(razorpayError, null, 2));
-    console.error("====================================");
+    // console.error("========== RAZORPAY ERROR ==========");
+    // console.error("Status:", razorpayError.statusCode);
+    // console.error("Message:", razorpayError.message);
+    // console.error("Error:", razorpayError.error);
+    // console.error("Full:", JSON.stringify(razorpayError, null, 2));
+    // console.error("====================================");
 
-        return res.status(400).json({
-          success: false,
-          msg: "Razorpay linked account creation failed",
-          razorpay_status: razorpayError.statusCode || null,
-          error: razorpayError.error || null,
-          message: razorpayError.message || null,
-        });
-      }
+    //     return res.status(400).json({
+    //       success: false,
+    //       msg: "Razorpay linked account creation failed",
+    //       razorpay_status: razorpayError.statusCode || null,
+    //       error: razorpayError.error || null,
+    //       message: razorpayError.message || null,
+    //     });
+    //   }
 
-      const linkedAccountId = linkedAccount.id;
+    //   const linkedAccountId = linkedAccount.id;
 
       // Save bank details
       const [result] = await conn.query(
@@ -148,24 +148,24 @@ router.post(
       );
 
       // Save Razorpay Linked Account ID in USERS table
-      await conn.query(
-        `UPDATE users
-         SET razorpay_linked_account_id = ?
-         WHERE id = ?`,
-        [
-          linkedAccountId,
-          driverId,
-        ]
-      );
+      // await conn.query(
+      //   `UPDATE users
+      //    SET razorpay_linked_account_id = ?
+      //    WHERE id = ?`,
+      //   [
+      //     linkedAccountId,
+      //     driverId,
+      //   ]
+      // );
 
       await conn.commit();
 
       return res.status(201).json({
         success: true,
-        msg: "Bank details and Razorpay linked account added successfully",
+        msg: "Bank details added successfully",
         data: {
           bank_detail_id: result.insertId,
-          razorpay_linked_account_id: linkedAccountId,
+          //razorpay_linked_account_id: linkedAccountId,
         },
       });
 
@@ -224,7 +224,7 @@ router.put(
 
       // Get user + linked account ID
       const [[user]] = await conn.query(
-        `SELECT id, phone, razorpay_linked_account_id
+        `SELECT id, phone
          FROM users
          WHERE phone = ?
          LIMIT 1`,
@@ -295,8 +295,8 @@ router.put(
         msg: "Bank details updated successfully",
         data: {
           id: bankDetails.id,
-          razorpay_linked_account_id:
-            user.razorpay_linked_account_id,
+          // razorpay_linked_account_id:
+          //   user.razorpay_linked_account_id,
         },
       });
 
